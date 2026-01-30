@@ -1,0 +1,85 @@
+# Sudoku Kingdom Backend
+
+Backend API pour Sudoku Kingdom - Application de jeu Sudoku avec éléments RPG.
+
+## 🚀 Installation
+```bash
+# Installer les dépendances
+npm install
+
+# Configurer les variables d'environnement
+cp .env.example .env
+# Modifier .env avec vos paramètres
+
+# Initialiser la base de données
+npm run init-db
+
+# Démarrer le serveur
+npm run dev
+```
+
+## 📦 Technologies
+
+- **Node.js** - Runtime JavaScript
+- **Express.js** - Framework web
+- **PostgreSQL** - Base de données
+- **Socket.io** - WebSocket pour duels temps réel
+- **JWT** - Authentification
+- **bcryptjs** - Hachage des mots de passe
+
+## 🔗 Routes API
+
+### Authentification
+- `POST /api/auth/register` - Inscription
+- `POST /api/auth/login` - Connexion
+- `GET /api/auth/me` - Profil utilisateur (protégé)
+
+### Jeu
+- `POST /api/game/start` - Démarrer partie
+- `POST /api/game/:gameId/complete` - Terminer partie
+- `GET /api/game/boosters` - Liste des boosters
+- `POST /api/game/use-booster` - Utiliser booster
+- `GET /api/game/history` - Historique parties
+
+### Duel
+- `POST /api/duel/challenge` - Défier un ami
+- `POST /api/duel/:duelId/complete` - Terminer duel
+- `POST /api/duel/:duelId/malus` - Envoyer malus
+
+### Tournoi
+- `GET /api/tournament/list` - Liste tournois
+- `GET /api/tournament/:id` - Détails tournoi
+- `POST /api/tournament/:id/join` - Rejoindre tournoi
+- `GET /api/tournament/:id/leaderboard` - Classement
+- `POST /api/tournament/:id/submit` - Soumettre score
+
+### Social
+- `GET /api/social/friends` - Liste amis
+- `POST /api/social/friends/request` - Envoyer demande
+- `POST /api/social/friends/accept/:id` - Accepter demande
+- `GET /api/social/friends/pending` - Demandes en attente
+- `GET /api/social/users/search` - Rechercher utilisateurs
+
+## 🔌 WebSocket Events
+
+### Duel
+- `search_duel` - Rechercher adversaire
+- `cancel_search` - Annuler recherche
+- `duel_found` - Adversaire trouvé
+- `update_progress` - Mise à jour progression
+- `opponent_progress` - Progression adversaire
+- `duel_completed` - Duel terminé
+- `send_malus` - Envoyer malus
+- `receive_malus` - Recevoir malus
+- `opponent_disconnected` - Adversaire déconnecté
+
+## 📝 Structure Base de Données
+
+Voir `src/config/initDatabase.js` pour le schéma complet.
+
+## 🛠️ Scripts
+```bash
+npm start       # Démarrer en production
+npm run dev     # Démarrer en développement (nodemon)
+npm run init-db # Initialiser la base de données
+```
