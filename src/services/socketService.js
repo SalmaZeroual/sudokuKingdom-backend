@@ -16,24 +16,27 @@ const BOT_USER = {
 };
 
 // Simule un bot qui joue automatiquement
-function simulateBotPlay(duelId, solution) {
+function simulateBotPlay(duelId, solution, playerSocketId) {
   let progress = 0;
   let mistakes = 0;
+  
+  console.log(`🤖 Bot started playing in duel ${duelId}`);
   
   const botInterval = setInterval(() => {
     if (!activeDuels.has(duelId)) {
       clearInterval(botInterval);
+      console.log(`🤖 Bot stopped - duel ${duelId} no longer active`);
       return;
     }
     
-    const duelInfo = activeDuels.get(duelId);
+    // Le bot fait des progrès aléatoires (5-15% par update)
+    const increment = Math.floor(Math.random() * 11) + 5;
+    progress = Math.min(100, progress + increment);
     
-    // Le bot fait des progrès aléatoires (10-20% par update)
-    progress = Math.min(100, progress + Math.floor(Math.random() * 15) + 5);
-    
-    // Le bot fait parfois des erreurs (20% de chance)
-    if (Math.random() < 0.2 && mistakes < 3) {
+    // Le bot fait parfois des erreurs (15% de chance par update)
+    if (Math.random() < 0.15 && mistakes < 2) {  // Max 2 erreurs pour le bot
       mistakes++;
+      console.log(`🤖 Bot made a mistake! (${mistakes}/3)`);
     }
     
     // Mettre à jour la base de données
@@ -41,51 +44,45 @@ function simulateBotPlay(duelId, solution) {
       .catch(err => console.error('Bot progress update error:', err));
     
     // Envoyer la progression au joueur réel
-    if (duelInfo.player1Socket) {
-      io.to(duelInfo.player1Socket).emit('opponent_progress', { 
-        progress, 
-        mistakes 
-      });
-    }
+    io.to(playerSocketId).emit('opponent_progress', { 
+      progress, 
+      mistakes 
+    });
     
     console.log(`🤖 Bot progress: ${progress}% (${mistakes} mistakes)`);
-    
-    // Le bot termine vers 95-100%
-    if (progress >= 95) {
-      clearInterval(botInterval);
-      
-      // Le bot a terminé ! (mais légèrement plus lent que le joueur)
-      setTimeout(() => {
-        if (activeDuels.has(duelId)) {
-          const duelInfo = activeDuels.get(duelId);
-          
-          // Le joueur réel gagne si le bot termine
-          if (duelInfo.player1Socket) {
-            io.to(duelInfo.player1Socket).emit('duel_finished', { 
-              winner_id: 'player1'  // Le joueur gagne
-            });
-          }
-          
-          activeDuels.delete(duelId);
-          console.log(`🏆 Bot finished - Player wins duel ${duelId}`);
-        }
-      }, 3000); // 3 secondes de délai pour que le joueur puisse gagner avant
-    }
     
     // Si le bot fait 3 erreurs, il est éliminé
     if (mistakes >= 3) {
       clearInterval(botInterval);
       
-      const duelInfo = activeDuels.get(duelId);
-      if (duelInfo && duelInfo.player1Socket) {
-        io.to(duelInfo.player1Socket).emit('opponent_eliminated');
-      }
+      io.to(playerSocketId).emit('opponent_eliminated');
+      
+      // Mettre à jour le winner
+      Duel.complete(duelId, duelId.player1Id)
+        .catch(err => console.error('Bot elimination completion error:', err));
       
       activeDuels.delete(duelId);
       console.log(`💀 Bot eliminated by 3 mistakes in duel ${duelId}`);
+      return;
     }
     
-  }, 5000); // Le bot joue toutes les 5 secondes
+    // Le bot termine vers 95-100% (mais avec délai pour que le joueur puisse gagner)
+    if (progress >= 95) {
+      clearInterval(botInterval);
+      
+      console.log(`🤖 Bot approaching completion at ${progress}%...`);
+      
+      // Délai pour donner une chance au joueur de gagner
+      setTimeout(() => {
+        if (activeDuels.has(duelId)) {
+          // Si le duel est toujours actif, le bot termine
+          // (mais dans la vraie vie, le joueur devrait avoir fini avant)
+          console.log(`🤖 Bot finished! Player should win by being faster.`);
+        }
+      }, 5000); // 5 secondes de délai
+    }
+    
+  }, 4000); // Le bot joue toutes les 4 secondes (un peu plus rapide que 5s)
 }
 
 // ==========================================
@@ -114,9 +111,12 @@ exports.initializeSocket = (socketIo) => {
         
         const waiting = waitingPlayers.get(difficulty);
         
+        // ✅ FIX: Chercher un joueur réel d'abord
         if (waiting.length > 0) {
           // Match found with another real player!
           const opponent = waiting.shift();
+          
+          console.log(`🎮 Real player match found! ${userId} vs ${opponent.userId}`);
           
           // Generate Sudoku
           const { grid, solution } = generateSudoku(difficulty);
@@ -158,32 +158,38 @@ exports.initializeSocket = (socketIo) => {
           io.to(opponent.socketId).emit('duel_found', duelData);
           io.to(socket.id).emit('duel_found', duelData);
           
-          console.log(`✅ Duel ${duel.id} created between ${opponent.userId} and ${userId}`);
+          console.log(`✅ Real player duel ${duel.id} created between ${opponent.userId} and ${userId}`);
           
         } else {
-          // ✅ MODE TEST: Créer un duel avec le bot "amitest"
-          console.log(`🤖 No players waiting, creating bot match for user ${userId}`);
+          // ✅ MODE BOT: Pas de joueur en attente → Créer un match avec le bot
+          console.log(`🤖 No players waiting, creating BOT match for user ${userId}`);
           
           // Generate Sudoku
           const { grid, solution } = generateSudoku(difficulty);
           
-          // Create duel with bot
+          // Get real player info
+          const player = await User.findById(userId);
+          
+          if (!player) {
+            console.error(`❌ User ${userId} not found`);
+            socket.emit('error', { message: 'User not found' });
+            return;
+          }
+          
+          // ✅ Create duel with bot (player is player1, bot is player2)
           const result = await Duel.create(userId, BOT_USER.userId, grid, solution, difficulty);
           const duel = await Duel.findById(result.id);
-          
-          // Get real player username
-          const player = await User.findById(userId);
           
           const duelData = {
             id: duel.id,
             player1_id: duel.player1_id,
             player2_id: duel.player2_id,
             player1_name: player.username,
-            player2_name: BOT_USER.username,  // ← Bot name
+            player2_name: BOT_USER.username,  // ← Bot name "amitest"
             grid: duel.grid,
             solution: duel.solution,
             difficulty: duel.difficulty,
-            status: duel.status,
+            status: 'active',
             player1_progress: 0,
             player2_progress: 0,
             player1_mistakes: 0,
@@ -202,10 +208,10 @@ exports.initializeSocket = (socketIo) => {
           // Notify player
           io.to(socket.id).emit('duel_found', duelData);
           
-          console.log(`✅ Bot duel ${duel.id} created for user ${userId}`);
+          console.log(`✅ Bot duel ${duel.id} created: ${player.username} vs ${BOT_USER.username}`);
           
           // ✅ Start bot simulation
-          simulateBotPlay(duel.id, duel.solution);
+          simulateBotPlay(duel.id, duel.solution, socket.id);
         }
         
       } catch (error) {
@@ -377,19 +383,23 @@ exports.initializeSocket = (socketIo) => {
             content 
           });
         } else {
-          // Bot responds with random message
+          // ✅ Bot responds with random message after delay
           const botMessages = [
             '👍 Bien joué !',
             '😎 Continue comme ça',
             '🔥 Tu es en feu !',
+            '💪 Fort !',
+            '⚡ Rapide !',
           ];
           
           setTimeout(() => {
+            const randomMsg = botMessages[Math.floor(Math.random() * botMessages.length)];
             io.to(socket.id).emit('duel_message', {
               sender_id: BOT_USER.userId,
-              content: botMessages[Math.floor(Math.random() * botMessages.length)],
+              content: randomMsg,
             });
-          }, 1000);
+            console.log(`🤖 Bot replied: "${randomMsg}"`);
+          }, 1500);
         }
         
         console.log(`💬 Message sent in duel ${duel_id}: "${content}"`);

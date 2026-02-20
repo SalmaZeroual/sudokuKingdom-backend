@@ -2,7 +2,7 @@ const db = require('../config/database');
 
 class Story {
   // ==========================================
-  // CHAPTERS - Gestion des chapitres
+  // CREATE CHAPTER
   // ==========================================
   
   static create(kingdomId, chapterId, title, description, grid, solution, difficulty, order, storyText, objectiveText) {
@@ -25,11 +25,19 @@ class Story {
         storyText,
         objectiveText
       ], function(err) {
-        if (err) reject(err);
-        else resolve({ id: this.lastID });
+        if (err) {
+          console.error('Error creating chapter:', err);
+          reject(err);
+        } else {
+          resolve({ id: this.lastID });
+        }
       });
     });
   }
+  
+  // ==========================================
+  // FIND ALL CHAPTERS
+  // ==========================================
   
   static findAll() {
     return new Promise((resolve, reject) => {
@@ -39,8 +47,10 @@ class Story {
       `;
       
       db.all(sql, [], (err, rows) => {
-        if (err) reject(err);
-        else {
+        if (err) {
+          console.error('Error finding all chapters:', err);
+          reject(err);
+        } else {
           rows.forEach(row => {
             row.grid = JSON.parse(row.grid);
             row.solution = JSON.parse(row.solution);
@@ -50,6 +60,10 @@ class Story {
       });
     });
   }
+  
+  // ==========================================
+  // FIND CHAPTERS BY KINGDOM
+  // ==========================================
   
   static findByKingdom(kingdomId) {
     return new Promise((resolve, reject) => {
@@ -60,8 +74,10 @@ class Story {
       `;
       
       db.all(sql, [kingdomId], (err, rows) => {
-        if (err) reject(err);
-        else {
+        if (err) {
+          console.error('Error finding chapters by kingdom:', err);
+          reject(err);
+        } else {
           rows.forEach(row => {
             row.grid = JSON.parse(row.grid);
             row.solution = JSON.parse(row.solution);
@@ -72,13 +88,19 @@ class Story {
     });
   }
   
+  // ==========================================
+  // FIND CHAPTER BY ID
+  // ==========================================
+  
   static findById(id) {
     return new Promise((resolve, reject) => {
       const sql = 'SELECT * FROM story_chapters WHERE id = ?';
       
       db.get(sql, [id], (err, row) => {
-        if (err) reject(err);
-        else {
+        if (err) {
+          console.error('Error finding chapter by id:', err);
+          reject(err);
+        } else {
           if (row) {
             row.grid = JSON.parse(row.grid);
             row.solution = JSON.parse(row.solution);
@@ -90,7 +112,7 @@ class Story {
   }
   
   // ==========================================
-  // USER PROGRESS - Progression utilisateur
+  // GET USER PROGRESS
   // ==========================================
   
   static getUserProgress(userId) {
@@ -103,11 +125,19 @@ class Story {
       `;
       
       db.all(sql, [userId], (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
+        if (err) {
+          console.error('Error getting user progress:', err);
+          reject(err);
+        } else {
+          resolve(rows);
+        }
       });
     });
   }
+  
+  // ==========================================
+  // COMPLETE CHAPTER
+  // ==========================================
   
   static completeChapter(userId, chapterId, stars, timeTaken, mistakes) {
     return new Promise((resolve, reject) => {
@@ -122,11 +152,19 @@ class Story {
       `;
       
       db.run(sql, [userId, chapterId, stars, timeTaken, mistakes], function(err) {
-        if (err) reject(err);
-        else resolve({ id: this.lastID });
+        if (err) {
+          console.error('Error completing chapter:', err);
+          reject(err);
+        } else {
+          resolve({ id: this.lastID });
+        }
       });
     });
   }
+  
+  // ==========================================
+  // GET KINGDOM PROGRESS
+  // ==========================================
   
   static getKingdomProgress(userId, kingdomId) {
     return new Promise((resolve, reject) => {
@@ -141,14 +179,18 @@ class Story {
       `;
       
       db.get(sql, [kingdomId, userId, kingdomId], (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
+        if (err) {
+          console.error('Error getting kingdom progress:', err);
+          reject(err);
+        } else {
+          resolve(row || { completed_chapters: 0, total_stars: 0, total_chapters: 0 });
+        }
       });
     });
   }
   
   // ==========================================
-  // ARTIFACTS - Artefacts collectibles
+  // COLLECT ARTIFACT
   // ==========================================
   
   static collectArtifact(userId, artifactId) {
@@ -159,11 +201,19 @@ class Story {
       `;
       
       db.run(sql, [userId, artifactId], function(err) {
-        if (err) reject(err);
-        else resolve({ id: this.lastID, changes: this.changes });
+        if (err) {
+          console.error('Error collecting artifact:', err);
+          reject(err);
+        } else {
+          resolve({ id: this.lastID, changes: this.changes });
+        }
       });
     });
   }
+  
+  // ==========================================
+  // GET USER ARTIFACTS
+  // ==========================================
   
   static getUserArtifacts(userId) {
     return new Promise((resolve, reject) => {
@@ -174,14 +224,18 @@ class Story {
       `;
       
       db.all(sql, [userId], (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
+        if (err) {
+          console.error('Error getting user artifacts:', err);
+          reject(err);
+        } else {
+          resolve(rows);
+        }
       });
     });
   }
   
   // ==========================================
-  // STATISTICS - Statistiques globales
+  // GET USER STATS
   // ==========================================
   
   static getUserStats(userId) {
@@ -198,8 +252,18 @@ class Story {
       `;
       
       db.get(sql, [userId, userId], (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
+        if (err) {
+          console.error('Error getting user stats:', err);
+          reject(err);
+        } else {
+          resolve(row || {
+            total_completed: 0,
+            total_stars: 0,
+            artifacts_collected: 0,
+            best_time: 0,
+            avg_time: 0
+          });
+        }
       });
     });
   }

@@ -290,13 +290,30 @@ exports.login = async (req, res) => {
   }
 };
 
-// Get current user
+// ✅ AMÉLIORÉ: Get current user avec league à jour
 exports.getMe = async (req, res) => {
   try {
     const user = await User.findById(req.userId);
     
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // ✅ Vérifier si la league est à jour
+    const correctLeague = User.calculateLeague(user.xp);
+    
+    if (user.league !== correctLeague) {
+      // Mettre à jour si nécessaire
+      await new Promise((resolve, reject) => {
+        db.run(
+          'UPDATE users SET league = ? WHERE id = ?',
+          [correctLeague, user.id],
+          (err) => err ? reject(err) : resolve()
+        );
+      });
+      
+      user.league = correctLeague;
+      console.log(`✅ League mise à jour pour ${user.username}: ${correctLeague}`);
     }
     
     res.json(user);
@@ -307,8 +324,44 @@ exports.getMe = async (req, res) => {
   }
 };
 
+// ✅ NOUVEAU: Obtenir le classement de la league
+exports.getLeagueLeaderboard = async (req, res) => {
+  try {
+    const { league } = req.params;
+    const limit = parseInt(req.query.limit) || 100;
+    
+    const leaderboard = await User.getLeagueLeaderboard(league, limit);
+    
+    // Ajouter le rang
+    const rankedLeaderboard = leaderboard.map((user, index) => ({
+      ...user,
+      rank: index + 1
+    }));
+    
+    res.json(rankedLeaderboard);
+    
+  } catch (error) {
+    console.error('Get league leaderboard error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// ✅ NOUVEAU: Obtenir le classement global
+exports.getGlobalLeaderboard = async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const leaderboard = await User.getGlobalLeaderboard(limit);
+    
+    res.json(leaderboard);
+    
+  } catch (error) {
+    console.error('Get global leaderboard error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 // ==========================================
-// PASSWORD RESET FUNCTIONS - NOUVEAU
+// PASSWORD RESET FUNCTIONS
 // ==========================================
 
 // Request password reset

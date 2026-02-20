@@ -7,11 +7,13 @@ const morgan = require('morgan');
 require('dotenv').config();
 
 const authRoutes = require('./routes/auth');
+const userRoutes = require('./routes/user'); // ✅ NOUVEAU
 const gameRoutes = require('./routes/game');
 const duelRoutes = require('./routes/duel');
 const tournamentRoutes = require('./routes/tournament');
 const socialRoutes = require('./routes/social');
 const chatRoutes = require('./routes/chat');
+const storyRoutes = require('./routes/story');
 
 const { initializeSocket } = require('./services/socketService');
 
@@ -33,11 +35,13 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/user', userRoutes); // ✅ NOUVEAU - User profile routes
 app.use('/api/game', gameRoutes);
 app.use('/api/duel', duelRoutes);
 app.use('/api/tournament', tournamentRoutes);
 app.use('/api/social', socialRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/story', storyRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -62,6 +66,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📡 WebSocket server ready`);
+  console.log(`✅ User profile routes enabled at /api/user`); // ✅ NOUVEAU
 });
 
 module.exports = { app, io };

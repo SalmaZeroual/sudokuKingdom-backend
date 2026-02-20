@@ -16,5 +16,7 @@ router.post('/reset-password', authController.resetPassword);
 
 // Protected routes
 router.get('/me', authenticate, authController.getMe);
+router.get('/leaderboard/global', authController.getGlobalLeaderboard);
+router.get('/leaderboard/:league', authController.getLeagueLeaderboard);
 
 module.exports = router;

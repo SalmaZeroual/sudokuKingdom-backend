@@ -1,6 +1,6 @@
-const Story = require('../src/models/Story');
+const Story = require('../models/story');
 const User = require('../models/User');
-const { generateSudoku } = require('../utils/sudokuGenerator');
+const { generateSudoku } = require('../services/sudokuGenerator');
 
 // ==========================================
 // GET KINGDOMS - Liste des 5 royaumes
