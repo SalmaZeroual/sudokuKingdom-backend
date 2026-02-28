@@ -167,7 +167,7 @@ exports.changePassword = async (req, res) => {
 };
 
 // ==========================================
-// GET USER PROFILE (OPTIONAL - if not already exists)
+// GET USER PROFILE
 // ==========================================
 exports.getProfile = async (req, res) => {
   try {
@@ -195,5 +195,77 @@ exports.getProfile = async (req, res) => {
   } catch (error) {
     console.error('Get profile error:', error);
     res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// ==========================================
+// ✅ NOUVEAU : UPDATE AVATAR
+// ==========================================
+exports.updateAvatar = async (req, res) => {
+  try {
+    const { avatar } = req.body;
+    const userId = req.userId; // From auth middleware
+    
+    // Validation
+    if (!avatar) {
+      return res.status(400).json({ error: 'Avatar is required' });
+    }
+    
+    // Liste des avatars valides (même liste que Flutter)
+    const validAvatars = [
+      'king', 'queen', 'prince', 'princess', 'crown',
+      'knight', 'ninja', 'viking', 'samurai', 'wizard', 'archer',
+      'dragon', 'unicorn', 'phoenix', 'wolf', 'eagle', 'lion',
+      'star', 'diamond', 'trophy', 'lightning', 'fire',
+      'rocket', 'robot', 'alien', 'ghost', 'skull',
+      'rainbow', 'moon', 'sun'
+    ];
+    
+    // Vérifier que l'avatar est valide
+    if (!validAvatars.includes(avatar)) {
+      return res.status(400).json({ 
+        error: 'Avatar invalide' 
+      });
+    }
+    
+    // Update avatar
+    await new Promise((resolve, reject) => {
+      db.run(
+        'UPDATE users SET avatar = ? WHERE id = ?',
+        [avatar, userId],
+        function(err) {
+          if (err) reject(err);
+          else resolve({ changes: this.changes });
+        }
+      );
+    });
+    
+    // Get updated user
+    const updatedUser = await User.findById(userId);
+    
+    if (!updatedUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    console.log(`✅ Avatar updated for user ${userId}: ${avatar}`);
+    
+    res.json({
+      message: 'Avatar mis à jour avec succès',
+      user: {
+        id: updatedUser.id,
+        username: updatedUser.username,
+        email: updatedUser.email,
+        xp: updatedUser.xp,
+        level: updatedUser.level,
+        avatar: avatar,
+        wins: updatedUser.wins,
+        streak: updatedUser.streak,
+        league: updatedUser.league,
+      },
+    });
+    
+  } catch (error) {
+    console.error('Update avatar error:', error);
+    res.status(500).json({ error: 'Erreur lors de la mise à jour de l\'avatar' });
   }
 };

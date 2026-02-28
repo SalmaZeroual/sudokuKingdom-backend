@@ -9,7 +9,7 @@ router.post('/login', authController.login);
 router.post('/verify-email', authController.verifyEmail);
 router.post('/resend-code', authController.resendVerificationCode);
 
-// Password reset routes - NOUVEAU
+// Password reset routes
 router.post('/forgot-password', authController.requestPasswordReset);
 router.post('/verify-reset-code', authController.verifyResetCode);
 router.post('/reset-password', authController.resetPassword);
@@ -18,5 +18,11 @@ router.post('/reset-password', authController.resetPassword);
 router.get('/me', authenticate, authController.getMe);
 router.get('/leaderboard/global', authController.getGlobalLeaderboard);
 router.get('/leaderboard/:league', authController.getLeagueLeaderboard);
+
+// ✅ NOUVEAU : Suppression de compte (protégée, mot de passe requis)
+router.delete('/delete-account', authenticate, authController.deleteAccount);
+
+// ✅ NOUVEAU : Suppression de compte (protégée, mot de passe requis dans le body)
+router.delete('/delete-account', authenticate, authController.deleteAccount);
 
 module.exports = router;

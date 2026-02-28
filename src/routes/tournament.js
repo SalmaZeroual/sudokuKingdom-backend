@@ -3,15 +3,15 @@ const router = express.Router();
 const tournamentController = require('../controllers/tournamentController');
 const { authenticate } = require('../middlewares/auth');
 
-// Public route
-router.get('/list', tournamentController.getTournaments);
+// ✅ Public route - FIX: listTournaments au lieu de getTournaments
+router.get('/list', tournamentController.listTournaments);
 
 // Protected routes
 router.use(authenticate);
 
-router.get('/:tournamentId', tournamentController.getTournamentDetails);
-router.post('/:tournamentId/join', tournamentController.joinTournament);
-router.get('/:tournamentId/leaderboard', tournamentController.getLeaderboard);
-router.post('/:tournamentId/submit', tournamentController.submitScore);
+router.get('/:id', tournamentController.getTournament);
+router.post('/:id/join', tournamentController.joinTournament);
+router.get('/:id/leaderboard', tournamentController.getLeaderboard);
+router.post('/:id/submit', tournamentController.submitScore);
 
 module.exports = router;

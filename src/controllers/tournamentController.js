@@ -1,31 +1,118 @@
 const Tournament = require('../models/Tournament');
+const TournamentParticipation = require('../models/TournamentParticipation');
+const { generateSudoku } = require('../services/sudokuGenerator');
 
-// Get tournaments list
-exports.getTournaments = async (req, res) => {
-  try {
-    const tournaments = await Tournament.findAll();
-    res.json(tournaments);
+// ✅ NOUVEAU: Vérifier et créer les tournois du dimanche si nécessaire
+async function ensureSundayTournaments() {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 = Dimanche
+  
+  // Si ce n'est pas dimanche, ne rien faire
+  if (dayOfWeek !== 0) {
+    return;
+  }
+  
+  // Vérifier si des tournois existent déjà pour aujourd'hui
+  const startOfDay = new Date(now);
+  startOfDay.setHours(0, 0, 0, 0);
+  
+  const endOfDay = new Date(now);
+  endOfDay.setHours(23, 59, 59, 999);
+  
+  const existingTournaments = await Tournament.getActiveTournaments();
+  
+  // Si des tournois existent déjà et sont valides pour aujourd'hui, ne rien faire
+  if (existingTournaments.length > 0) {
+    const firstTournament = existingTournaments[0];
+    const tournamentStart = new Date(firstTournament.start_date);
     
+    // Vérifier si le tournoi est bien pour aujourd'hui
+    if (tournamentStart.toDateString() === startOfDay.toDateString()) {
+      console.log('✅ Tournois du dimanche déjà créés');
+      return;
+    }
+  }
+  
+  // Créer les 4 tournois du dimanche
+  console.log('🏆 Création automatique des tournois du dimanche...');
+  
+  const tournaments = [
+    { name: 'Tournoi Facile', difficulty: 'facile' },
+    { name: 'Tournoi Moyen', difficulty: 'moyen' },
+    { name: 'Tournoi Difficile', difficulty: 'difficile' },
+    { name: 'Tournoi Extrême', difficulty: 'extreme' },
+  ];
+  
+  for (const config of tournaments) {
+    try {
+      const { grid, solution } = generateSudoku(config.difficulty);
+      
+      await Tournament.create({
+        name: config.name,
+        grid,
+        solution,
+        difficulty: config.difficulty,
+        startDate: startOfDay,
+        endDate: endOfDay,
+      });
+      
+      console.log(`   ✅ ${config.name} créé`);
+    } catch (error) {
+      console.error(`   ❌ Erreur création ${config.name}:`, error);
+    }
+  }
+  
+  console.log('✅ Tournois du dimanche créés automatiquement !');
+}
+
+// Get all active tournaments
+exports.listTournaments = async (req, res) => {
+  try {
+    // ✅ Vérifier et créer les tournois si nécessaire
+    await ensureSundayTournaments();
+    
+    const tournaments = await Tournament.getActiveTournaments();
+    
+    // Add participant count for each tournament
+    const tournamentsWithData = await Promise.all(
+      tournaments.map(async (tournament) => {
+        const participants = await TournamentParticipation.getTournamentParticipants(tournament.id);
+        return {
+          ...tournament,
+          participants: participants.length,
+        };
+      })
+    );
+    
+    res.json(tournamentsWithData);
   } catch (error) {
-    console.error('Get tournaments error:', error);
+    console.error('List tournaments error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };
 
 // Get tournament details
-exports.getTournamentDetails = async (req, res) => {
+exports.getTournament = async (req, res) => {
   try {
-    const { tournamentId } = req.params;
-    const tournament = await Tournament.findById(tournamentId);
+    const { id } = req.params;
+    
+    const tournament = await Tournament.findById(id);
     
     if (!tournament) {
       return res.status(404).json({ error: 'Tournament not found' });
     }
     
-    res.json(tournament);
+    // Check if user has participated
+    const userId = req.userId;
+    const participation = await TournamentParticipation.findByUserAndTournament(userId, id);
     
+    res.json({
+      ...tournament,
+      hasParticipated: !!participation,
+      userParticipation: participation,
+    });
   } catch (error) {
-    console.error('Get tournament details error:', error);
+    console.error('Get tournament error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -33,71 +120,107 @@ exports.getTournamentDetails = async (req, res) => {
 // Join tournament
 exports.joinTournament = async (req, res) => {
   try {
-    const { tournamentId } = req.params;
+    const { id } = req.params;
     const userId = req.userId;
     
-    // Check if tournament exists
-    const tournament = await Tournament.findById(tournamentId);
+    // Check if tournament exists and is active
+    const tournament = await Tournament.findById(id);
     
     if (!tournament) {
       return res.status(404).json({ error: 'Tournament not found' });
     }
     
-    // Join tournament
-    await Tournament.join(tournamentId, userId);
-    
-    res.json({ success: true, message: 'Joined tournament successfully' });
-    
-  } catch (error) {
-    if (error.message.includes('UNIQUE constraint failed')) {
-      return res.status(400).json({ error: 'Already joined this tournament' });
+    if (tournament.status !== 'active') {
+      return res.status(400).json({ error: 'Tournament is not active' });
     }
     
+    // Check if tournament has ended
+    const now = new Date();
+    const endDate = new Date(tournament.end_date);
+    
+    if (now > endDate) {
+      return res.status(400).json({ error: 'Tournament has ended' });
+    }
+    
+    // Check if user has already participated
+    const existingParticipation = await TournamentParticipation.findByUserAndTournament(userId, id);
+    
+    if (existingParticipation) {
+      return res.status(400).json({ error: 'Already participated in this tournament' });
+    }
+    
+    // Create participation
+    const participation = await TournamentParticipation.create(userId, id);
+    
+    res.json({
+      message: 'Successfully joined tournament',
+      participation,
+      tournament,
+    });
+  } catch (error) {
     console.error('Join tournament error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };
 
-// Get tournament leaderboard
-exports.getLeaderboard = async (req, res) => {
+// Submit score
+exports.submitScore = async (req, res) => {
   try {
-    const { tournamentId } = req.params;
-    const leaderboard = await Tournament.getLeaderboard(tournamentId);
+    const { id } = req.params;
+    const userId = req.userId;
+    const { score, time } = req.body;
     
-    // Update ranks
-    const db = require('../config/database');
-    
-    for (let i = 0; i < leaderboard.length; i++) {
-      leaderboard[i].rank = i + 1;
-      
-      db.run(
-        'UPDATE tournament_participations SET rank = ? WHERE id = ?',
-        [i + 1, leaderboard[i].id]
-      );
+    if (!score || !time) {
+      return res.status(400).json({ error: 'Score and time are required' });
     }
     
-    res.json(leaderboard);
+    // Check if user has participated
+    const participation = await TournamentParticipation.findByUserAndTournament(userId, id);
     
+    if (!participation) {
+      return res.status(400).json({ error: 'You must join the tournament first' });
+    }
+    
+    // Update score (only if better than previous or first submission)
+    if (!participation.score || score > participation.score) {
+      await TournamentParticipation.updateScore(participation.id, score, time);
+    }
+    
+    res.json({
+      message: 'Score submitted successfully',
+      score,
+      time,
+    });
+  } catch (error) {
+    console.error('Submit score error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// Get leaderboard
+exports.getLeaderboard = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const participants = await TournamentParticipation.getLeaderboard(id);
+    
+    res.json(participants);
   } catch (error) {
     console.error('Get leaderboard error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };
 
-// Submit tournament score
-exports.submitScore = async (req, res) => {
+// Get user's tournaments
+exports.getUserTournaments = async (req, res) => {
   try {
-    const { tournamentId } = req.params;
-    const { score, time } = req.body;
     const userId = req.userId;
     
-    // Update score
-    await Tournament.updateScore(tournamentId, userId, score, time);
+    const participations = await TournamentParticipation.getUserParticipations(userId);
     
-    res.json({ success: true, message: 'Score submitted' });
-    
+    res.json(participations);
   } catch (error) {
-    console.error('Submit score error:', error);
+    console.error('Get user tournaments error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };

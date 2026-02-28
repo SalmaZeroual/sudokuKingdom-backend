@@ -17,7 +17,6 @@ exports.register = async (req, res) => {
   try {
     const { username, email, password } = req.body;
     
-    // Validate input
     if (!username || !email || !password) {
       return res.status(400).json({ error: 'All fields are required' });
     }
@@ -26,13 +25,11 @@ exports.register = async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
     
-    // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({ error: 'Invalid email format' });
     }
     
-    // Check if user exists
     const existingEmail = await User.findByEmail(email);
     if (existingEmail) {
       return res.status(400).json({ error: 'Email already exists' });
@@ -43,15 +40,12 @@ exports.register = async (req, res) => {
       return res.status(400).json({ error: 'Username already exists' });
     }
     
-    // Hash password
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
     
-    // Generate verification code
     const verificationCode = generateVerificationCode();
-    const codeExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const codeExpires = new Date(Date.now() + 10 * 60 * 1000);
     
-    // Create user
     db.run(
       `INSERT INTO users (username, email, password_hash, verification_code, verification_code_expires, email_verified) 
        VALUES (?, ?, ?, ?, ?, 0)`,
@@ -64,12 +58,10 @@ exports.register = async (req, res) => {
         
         const userId = this.lastID;
         
-        // Create initial boosters
         await Booster.create(userId, 'reveal_cell', 3);
         await Booster.create(userId, 'freeze_time', 2);
         await Booster.create(userId, 'swap_cells', 5);
         
-        // Send verification email
         const emailSent = await sendVerificationEmail(email, username, verificationCode);
         
         if (!emailSent) {
@@ -100,7 +92,6 @@ exports.verifyEmail = async (req, res) => {
       return res.status(400).json({ error: 'Email and code are required' });
     }
     
-    // Find user
     db.get(
       'SELECT * FROM users WHERE email = ?',
       [email],
@@ -118,12 +109,10 @@ exports.verifyEmail = async (req, res) => {
           return res.status(400).json({ error: 'Email already verified' });
         }
         
-        // Check code
         if (user.verification_code !== code) {
           return res.status(400).json({ error: 'Invalid verification code' });
         }
         
-        // Check expiration
         const now = new Date();
         const expires = new Date(user.verification_code_expires);
         
@@ -131,7 +120,6 @@ exports.verifyEmail = async (req, res) => {
           return res.status(400).json({ error: 'Verification code expired' });
         }
         
-        // Verify email
         db.run(
           'UPDATE users SET email_verified = 1, verification_code = NULL, verification_code_expires = NULL WHERE id = ?',
           [user.id],
@@ -141,13 +129,9 @@ exports.verifyEmail = async (req, res) => {
               return res.status(500).json({ error: 'Server error' });
             }
             
-            // Send welcome email
             await sendWelcomeEmail(email, user.username);
             
-            // Generate token
             const token = generateToken(user.id);
-            
-            // Get updated user
             const updatedUser = await User.findById(user.id);
             
             res.json({
@@ -186,7 +170,6 @@ exports.resendVerificationCode = async (req, res) => {
       return res.status(400).json({ error: 'Email is required' });
     }
     
-    // Find user
     db.get(
       'SELECT * FROM users WHERE email = ?',
       [email],
@@ -204,11 +187,9 @@ exports.resendVerificationCode = async (req, res) => {
           return res.status(400).json({ error: 'Email already verified' });
         }
         
-        // Generate new code
         const verificationCode = generateVerificationCode();
         const codeExpires = new Date(Date.now() + 10 * 60 * 1000);
         
-        // Update user
         db.run(
           'UPDATE users SET verification_code = ?, verification_code_expires = ? WHERE id = ?',
           [verificationCode, codeExpires.toISOString(), user.id],
@@ -218,7 +199,6 @@ exports.resendVerificationCode = async (req, res) => {
               return res.status(500).json({ error: 'Server error' });
             }
             
-            // Send email
             const emailSent = await sendVerificationEmail(email, user.username, verificationCode);
             
             if (!emailSent) {
@@ -252,7 +232,6 @@ exports.login = async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     
-    // Check if email is verified
     if (user.email_verified === 0) {
       return res.status(403).json({ 
         error: 'Email not verified',
@@ -290,7 +269,7 @@ exports.login = async (req, res) => {
   }
 };
 
-// ✅ AMÉLIORÉ: Get current user avec league à jour
+// Get current user
 exports.getMe = async (req, res) => {
   try {
     const user = await User.findById(req.userId);
@@ -299,11 +278,9 @@ exports.getMe = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
     
-    // ✅ Vérifier si la league est à jour
     const correctLeague = User.calculateLeague(user.xp);
     
     if (user.league !== correctLeague) {
-      // Mettre à jour si nécessaire
       await new Promise((resolve, reject) => {
         db.run(
           'UPDATE users SET league = ? WHERE id = ?',
@@ -324,7 +301,7 @@ exports.getMe = async (req, res) => {
   }
 };
 
-// ✅ NOUVEAU: Obtenir le classement de la league
+// Get league leaderboard
 exports.getLeagueLeaderboard = async (req, res) => {
   try {
     const { league } = req.params;
@@ -332,7 +309,6 @@ exports.getLeagueLeaderboard = async (req, res) => {
     
     const leaderboard = await User.getLeagueLeaderboard(league, limit);
     
-    // Ajouter le rang
     const rankedLeaderboard = leaderboard.map((user, index) => ({
       ...user,
       rank: index + 1
@@ -346,7 +322,7 @@ exports.getLeagueLeaderboard = async (req, res) => {
   }
 };
 
-// ✅ NOUVEAU: Obtenir le classement global
+// Get global leaderboard
 exports.getGlobalLeaderboard = async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
@@ -364,7 +340,6 @@ exports.getGlobalLeaderboard = async (req, res) => {
 // PASSWORD RESET FUNCTIONS
 // ==========================================
 
-// Request password reset
 exports.requestPasswordReset = async (req, res) => {
   try {
     const { email } = req.body;
@@ -373,7 +348,6 @@ exports.requestPasswordReset = async (req, res) => {
       return res.status(400).json({ error: 'Email is required' });
     }
     
-    // Find user
     db.get(
       'SELECT * FROM users WHERE email = ?',
       [email],
@@ -383,18 +357,15 @@ exports.requestPasswordReset = async (req, res) => {
           return res.status(500).json({ error: 'Server error' });
         }
         
-        // Don't reveal if user exists or not (security)
         if (!user) {
           return res.json({ 
             message: 'Si cet email existe, un code de réinitialisation a été envoyé.' 
           });
         }
         
-        // Generate reset code
         const resetCode = generateVerificationCode();
-        const codeExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+        const codeExpires = new Date(Date.now() + 15 * 60 * 1000);
         
-        // Store reset code
         db.run(
           'UPDATE users SET verification_code = ?, verification_code_expires = ? WHERE id = ?',
           [resetCode, codeExpires.toISOString(), user.id],
@@ -404,7 +375,6 @@ exports.requestPasswordReset = async (req, res) => {
               return res.status(500).json({ error: 'Server error' });
             }
             
-            // Send reset email
             const emailSent = await sendPasswordResetEmail(email, user.username, resetCode);
             
             if (!emailSent) {
@@ -427,7 +397,6 @@ exports.requestPasswordReset = async (req, res) => {
   }
 };
 
-// Verify reset code
 exports.verifyResetCode = async (req, res) => {
   try {
     const { email, code } = req.body;
@@ -436,7 +405,6 @@ exports.verifyResetCode = async (req, res) => {
       return res.status(400).json({ error: 'Email and code are required' });
     }
     
-    // Find user
     db.get(
       'SELECT * FROM users WHERE email = ?',
       [email],
@@ -450,12 +418,10 @@ exports.verifyResetCode = async (req, res) => {
           return res.status(404).json({ error: 'User not found' });
         }
         
-        // Check code
         if (user.verification_code !== code) {
           return res.status(400).json({ error: 'Invalid reset code' });
         }
         
-        // Check expiration
         const now = new Date();
         const expires = new Date(user.verification_code_expires);
         
@@ -476,7 +442,6 @@ exports.verifyResetCode = async (req, res) => {
   }
 };
 
-// Reset password
 exports.resetPassword = async (req, res) => {
   try {
     const { email, code, newPassword } = req.body;
@@ -489,58 +454,119 @@ exports.resetPassword = async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
     
-    // Find user
-    db.get(
-      'SELECT * FROM users WHERE email = ?',
-      [email],
-      async (err, user) => {
-        if (err) {
-          console.error('Find user error:', err);
-          return res.status(500).json({ error: 'Server error' });
+    const user = await new Promise((resolve, reject) => {
+      db.get(
+        'SELECT * FROM users WHERE email = ?',
+        [email],
+        (err, row) => {
+          if (err) reject(err);
+          else resolve(row);
         }
-        
-        if (!user) {
-          return res.status(404).json({ error: 'User not found' });
+      );
+    });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    if (user.verification_code !== code) {
+      return res.status(400).json({ error: 'Invalid reset code' });
+    }
+    
+    const now = new Date();
+    const expires = new Date(user.verification_code_expires);
+    
+    if (now > expires) {
+      return res.status(400).json({ error: 'Reset code expired' });
+    }
+    
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(newPassword, salt);
+    
+    const updateResult = await new Promise((resolve, reject) => {
+      db.run(
+        'UPDATE users SET password_hash = ?, verification_code = NULL, verification_code_expires = NULL WHERE id = ?',
+        [passwordHash, user.id],
+        function(err) {
+          if (err) reject(err);
+          else resolve({ changes: this.changes });
         }
-        
-        // Check code
-        if (user.verification_code !== code) {
-          return res.status(400).json({ error: 'Invalid reset code' });
-        }
-        
-        // Check expiration
-        const now = new Date();
-        const expires = new Date(user.verification_code_expires);
-        
-        if (now > expires) {
-          return res.status(400).json({ error: 'Reset code expired' });
-        }
-        
-        // Hash new password
-        const salt = await bcrypt.genSalt(10);
-        const passwordHash = await bcrypt.hash(newPassword, salt);
-        
-        // Update password and clear reset code
-        db.run(
-          'UPDATE users SET password_hash = ?, verification_code = NULL, verification_code_expires = NULL WHERE id = ?',
-          [passwordHash, user.id],
-          (err) => {
-            if (err) {
-              console.error('Update password error:', err);
-              return res.status(500).json({ error: 'Server error' });
-            }
-            
-            res.json({ 
-              message: 'Password reset successfully',
-              success: true 
-            });
-          }
-        );
-      }
-    );
+      );
+    });
+    
+    if (updateResult.changes === 0) {
+      return res.status(500).json({ error: 'Failed to update password' });
+    }
+    
+    res.json({ 
+      message: 'Mot de passe réinitialisé avec succès',
+      success: true 
+    });
     
   } catch (error) {
     console.error('Reset password error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// ==========================================
+// ✅ DELETE ACCOUNT
+// ==========================================
+
+exports.deleteAccount = async (req, res) => {
+  try {
+    const { password } = req.body;
+    const userId = req.userId;
+
+    if (!password) {
+      return res.status(400).json({ error: 'Password is required' });
+    }
+
+    // SELECT * directement pour avoir password_hash
+    const user = await new Promise((resolve, reject) => {
+      db.get(
+        'SELECT * FROM users WHERE id = ?',
+        [userId],
+        (err, row) => {
+          if (err) reject(err);
+          else resolve(row);
+        }
+      );
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Vérifier le mot de passe
+    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
+
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: 'Mot de passe incorrect' });
+    }
+
+    // ✅ Supprimer uniquement le compte (pas de table boosters)
+    const result = await new Promise((resolve, reject) => {
+      db.run(
+        'DELETE FROM users WHERE id = ?',
+        [userId],
+        function(err) {
+          if (err) reject(err);
+          else resolve({ changes: this.changes });
+        }
+      );
+    });
+
+    if (result.changes === 0) {
+      return res.status(500).json({ error: 'Failed to delete account' });
+    }
+
+    console.log(`🗑️ Compte supprimé : ${user.username} (ID: ${userId})`);
+
+    res.json({ message: 'Compte supprimé avec succès' });
+
+  } catch (error) {
+    console.error('Delete account error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };

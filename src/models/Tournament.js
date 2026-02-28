@@ -1,20 +1,57 @@
 const db = require('../config/database');
 
 class Tournament {
+  // ✅ Créer un tournoi (version compatible avec l'ancien code)
   static create(name, grid, solution, difficulty, startDate, endDate) {
     return new Promise((resolve, reject) => {
       const sql = `
-        INSERT INTO tournaments (name, grid, solution, difficulty, start_date, end_date) 
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO tournaments (name, grid, solution, difficulty, start_date, end_date, status, created_at) 
+        VALUES (?, ?, ?, ?, ?, ?, 'active', CURRENT_TIMESTAMP)
       `;
       
-      db.run(sql, [name, JSON.stringify(grid), JSON.stringify(solution), difficulty, startDate, endDate], function(err) {
+      db.run(
+        sql,
+        [
+          name,
+          JSON.stringify(grid),
+          JSON.stringify(solution),
+          difficulty,
+          startDate,
+          endDate
+        ],
+        function(err) {
+          if (err) reject(err);
+          else resolve({ id: this.lastID });
+        }
+      );
+    });
+  }
+  
+  // ✅ NOUVEAU: Méthode utilisée par le controller automatique
+  static getActiveTournaments() {
+    return new Promise((resolve, reject) => {
+      const sql = `
+        SELECT * FROM tournaments 
+        WHERE status = 'active' 
+        AND datetime(end_date) > datetime('now')
+        ORDER BY created_at DESC
+      `;
+      
+      db.all(sql, [], (err, rows) => {
         if (err) reject(err);
-        else resolve({ id: this.lastID });
+        else {
+          const tournaments = rows.map(row => ({
+            ...row,
+            grid: JSON.parse(row.grid),
+            solution: JSON.parse(row.solution),
+          }));
+          resolve(tournaments);
+        }
       });
     });
   }
   
+  // Ancienne méthode findAll (garde pour compatibilité)
   static findAll() {
     return new Promise((resolve, reject) => {
       const sql = `
@@ -22,7 +59,7 @@ class Tournament {
                COUNT(DISTINCT tp.user_id) as participants
         FROM tournaments t
         LEFT JOIN tournament_participations tp ON t.id = tp.tournament_id
-        WHERE t.status = 'active' AND t.end_date > CURRENT_TIMESTAMP
+        WHERE t.status = 'active' AND datetime(t.end_date) > datetime('now')
         GROUP BY t.id
         ORDER BY t.start_date DESC
       `;
@@ -43,22 +80,18 @@ class Tournament {
   static findById(id) {
     return new Promise((resolve, reject) => {
       const sql = `
-        SELECT t.*, 
-               COUNT(DISTINCT tp.user_id) as participants
-        FROM tournaments t
-        LEFT JOIN tournament_participations tp ON t.id = tp.tournament_id
-        WHERE t.id = ?
-        GROUP BY t.id
+        SELECT * FROM tournaments WHERE id = ?
       `;
       
       db.get(sql, [id], (err, row) => {
         if (err) reject(err);
+        else if (!row) resolve(null);
         else {
-          if (row) {
-            row.grid = JSON.parse(row.grid);
-            row.solution = JSON.parse(row.solution);
-          }
-          resolve(row);
+          resolve({
+            ...row,
+            grid: JSON.parse(row.grid),
+            solution: JSON.parse(row.solution),
+          });
         }
       });
     });
@@ -107,6 +140,17 @@ class Tournament {
       db.all(sql, [tournamentId], (err, rows) => {
         if (err) reject(err);
         else resolve(rows);
+      });
+    });
+  }
+  
+  static updateStatus(id, status) {
+    return new Promise((resolve, reject) => {
+      const sql = 'UPDATE tournaments SET status = ? WHERE id = ?';
+      
+      db.run(sql, [status, id], function(err) {
+        if (err) reject(err);
+        else resolve({ changes: this.changes });
       });
     });
   }

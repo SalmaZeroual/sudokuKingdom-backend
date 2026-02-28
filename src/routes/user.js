@@ -19,4 +19,7 @@ router.put('/profile', userController.updateProfile);
 // Change password
 router.put('/password', userController.changePassword);
 
+// ✅ NOUVEAU : Update avatar
+router.put('/avatar', userController.updateAvatar);
+
 module.exports = router;
