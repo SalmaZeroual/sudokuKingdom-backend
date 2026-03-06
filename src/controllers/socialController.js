@@ -1,40 +1,16 @@
 const User = require('../models/User');
 const db = require('../config/database');
 
-// ✅ Un user est considéré "en ligne" s'il a été actif dans les 3 dernières minutes
-const ONLINE_THRESHOLD_MINUTES = 3;
-
-function isOnline(lastSeen) {
-  if (!lastSeen) return false;
-  const diff = (Date.now() - new Date(lastSeen).getTime()) / 1000 / 60;
-  return diff <= ONLINE_THRESHOLD_MINUTES;
-}
-
 // ==========================================
-// ✅ NOUVEAU : Mettre à jour last_seen
-// A appeler depuis le middleware authenticate
-// ==========================================
-exports.updateLastSeen = (userId) => {
-  db.run(
-    'UPDATE users SET last_seen = ? WHERE id = ?',
-    [new Date().toISOString(), userId],
-    (err) => {
-      if (err) console.error('Update last_seen error:', err);
-    }
-  );
-};
-
-// ==========================================
-// ✅ CORRIGÉ : Get friends list
-// CORRECTION: Retourner directement la liste, pas { friends: [...] }
+// GET FRIENDS LIST
 // ==========================================
 exports.getFriends = async (req, res) => {
   try {
     const userId = req.userId;
 
     const sql = `
-      SELECT u.id, u.username, u.level, u.avatar, u.xp, u.league,
-             f.status, f.created_at, u.last_seen,
+      SELECT u.id, u.username, u.level, u.avatar, u.xp, u.league, u.unique_id,
+             f.status, f.created_at,
              u.id as friend_id
       FROM friendships f
       JOIN users u ON f.friend_id = u.id
@@ -50,7 +26,6 @@ exports.getFriends = async (req, res) => {
 
       console.log(`✅ Found ${rows.length} friends for user ${userId}`);
 
-      // ✅ Ajouter is_online à chaque ami
       const friends = rows.map(row => ({
         id: row.id,
         friend_id: row.friend_id,
@@ -59,11 +34,11 @@ exports.getFriends = async (req, res) => {
         avatar: row.avatar || 'king',
         xp: row.xp,
         league: row.league,
-        is_online: isOnline(row.last_seen) ? 1 : 0,
+        unique_id: row.unique_id,
+        is_online: 0,
         created_at: row.created_at,
       }));
 
-      // ✅ CORRECTION: Retourner directement la liste
       res.json(friends);
     });
 
@@ -73,7 +48,9 @@ exports.getFriends = async (req, res) => {
   }
 };
 
-// Send friend request
+// ==========================================
+// SEND FRIEND REQUEST
+// ==========================================
 exports.sendFriendRequest = async (req, res) => {
   try {
     const { friend_id } = req.body;
@@ -123,7 +100,9 @@ exports.sendFriendRequest = async (req, res) => {
   }
 };
 
-// Accept friend request
+// ==========================================
+// ACCEPT FRIEND REQUEST
+// ==========================================
 exports.acceptFriendRequest = async (req, res) => {
   try {
     const { friendshipId } = req.params;
@@ -169,7 +148,9 @@ exports.acceptFriendRequest = async (req, res) => {
   }
 };
 
-// Reject friend request
+// ==========================================
+// REJECT FRIEND REQUEST
+// ==========================================
 exports.rejectFriendRequest = async (req, res) => {
   try {
     const { friendshipId } = req.params;
@@ -199,7 +180,7 @@ exports.rejectFriendRequest = async (req, res) => {
 };
 
 // ==========================================
-// ✅ CORRIGÉ : Get pending friend requests
+// GET PENDING FRIEND REQUESTS
 // ==========================================
 exports.getPendingRequests = async (req, res) => {
   try {
@@ -213,7 +194,8 @@ exports.getPendingRequests = async (req, res) => {
              u.level, 
              u.avatar, 
              u.xp, 
-             u.league, 
+             u.league,
+             u.unique_id,
              f.created_at
       FROM friendships f
       JOIN users u ON f.user_id = u.id
@@ -242,15 +224,20 @@ exports.getPendingRequests = async (req, res) => {
 };
 
 // ==========================================
-// ✅ CORRIGÉ : Search users
+// ✅ MODIFIÉ : SEARCH USERS BY EXACT unique_id
 // ==========================================
 exports.searchUsers = async (req, res) => {
   try {
     const { query } = req.query;
     const userId = req.userId;
 
-    if (!query || query.length < 2) {
-      return res.status(400).json({ error: 'Search query must be at least 2 characters' });
+    if (!query) {
+      return res.status(400).json({ error: 'Search query is required' });
+    }
+
+    // ✅ Vérifier si c'est exactement 10 chiffres
+    if (!/^\d{10}$/.test(query)) {
+      return res.json([]);
     }
 
     const users = await User.search(query, userId);
@@ -258,12 +245,7 @@ exports.searchUsers = async (req, res) => {
     const friendIds = users.map(u => u.id);
 
     if (friendIds.length === 0) {
-      return res.json(users.map(u => ({ 
-        ...u, 
-        avatar: u.avatar || 'king',
-        friendship_status: null, 
-        is_online: false 
-      })));
+      return res.json([]);
     }
 
     const sql = `
@@ -287,26 +269,14 @@ exports.searchUsers = async (req, res) => {
         friendshipMap[f.friend_id] = f.status;
       });
 
-      const placeholders = friendIds.map(() => '?').join(',');
-      db.all(
-        `SELECT id, last_seen FROM users WHERE id IN (${placeholders})`,
-        friendIds,
-        (err2, lastSeenRows) => {
-          const lastSeenMap = {};
-          if (!err2) {
-            lastSeenRows.forEach(r => { lastSeenMap[r.id] = r.last_seen; });
-          }
+      const result = users.map(u => ({
+        ...u,
+        avatar: u.avatar || 'king',
+        friendship_status: friendshipMap[u.id] || null,
+        is_online: false,
+      }));
 
-          const result = users.map(u => ({
-            ...u,
-            avatar: u.avatar || 'king',
-            friendship_status: friendshipMap[u.id] || null,
-            is_online: isOnline(lastSeenMap[u.id]),
-          }));
-
-          res.json(result);
-        }
-      );
+      res.json(result);
     });
 
   } catch (error) {
@@ -315,7 +285,37 @@ exports.searchUsers = async (req, res) => {
   }
 };
 
-// Remove friend
+// ==========================================
+// ✅ NOUVEAU : SEARCH FRIENDS BY NAME
+// ==========================================
+exports.searchFriends = async (req, res) => {
+  try {
+    const { query } = req.query;
+    const userId = req.userId;
+
+    if (!query || query.length < 2) {
+      return res.json([]);
+    }
+
+    const friends = await User.searchFriends(userId, query);
+
+    const result = friends.map(f => ({
+      ...f,
+      avatar: f.avatar || 'king',
+      is_online: 0,
+    }));
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('Search friends error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// ==========================================
+// REMOVE FRIEND
+// ==========================================
 exports.removeFriend = async (req, res) => {
   try {
     const { friendId } = req.params;
@@ -345,7 +345,7 @@ exports.removeFriend = async (req, res) => {
 };
 
 // ==========================================
-// ✅ CORRIGÉ : Get friend stats
+// GET FRIEND STATS
 // ==========================================
 exports.getFriendStats = async (req, res) => {
   try {

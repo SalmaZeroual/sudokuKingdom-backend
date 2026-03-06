@@ -1,5 +1,4 @@
 const jwt = require('jsonwebtoken');
-const { updateLastSeen } = require('../controllers/socialController');
 
 exports.authenticate = (req, res, next) => {
   try {
@@ -18,9 +17,10 @@ exports.authenticate = (req, res, next) => {
     // Add user ID to request
     req.userId = decoded.userId;
 
-    // ✅ Mettre à jour last_seen à chaque requête authentifiée
-    // Permet de savoir si un user est "en ligne" (actif dans les 3 dernières minutes)
-    updateLastSeen(decoded.userId);
+    // ✅ COMMENTÉ : updateLastSeen nécessite la colonne last_seen dans la DB
+    // Pour réactiver plus tard, ajoute la colonne : ALTER TABLE users ADD COLUMN last_seen TEXT;
+    // const { updateLastSeen } = require('../controllers/socialController');
+    // updateLastSeen(decoded.userId);
 
     next();
 
