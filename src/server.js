@@ -14,6 +14,8 @@ const tournamentRoutes = require('./routes/tournament');
 const socialRoutes = require('./routes/social');
 const chatRoutes = require('./routes/chat');
 const storyRoutes = require('./routes/story');
+const bugReportRoutes = require('./routes/bugReport');
+
 
 const { initializeSocket } = require('./services/socketService');
 
@@ -35,13 +37,14 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/user', userRoutes); // ✅ NOUVEAU - User profile routes
+app.use('/api/user', userRoutes); 
 app.use('/api/game', gameRoutes);
 app.use('/api/duel', duelRoutes);
 app.use('/api/tournament', tournamentRoutes);
 app.use('/api/social', socialRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/story', storyRoutes);
+app.use('/api/support', bugReportRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

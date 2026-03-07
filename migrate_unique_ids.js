@@ -1,7 +1,7 @@
 // Script de migration : Générer des unique_id pour tous les utilisateurs existants
 // À exécuter UNE SEULE FOIS après avoir ajouté la colonne unique_id
 
-const db = require('./config/database');
+const db = require('./src/config/database');
 
 function generateUniqueId() {
   return Math.floor(1000000000 + Math.random() * 9000000000).toString();

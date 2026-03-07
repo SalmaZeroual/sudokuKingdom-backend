@@ -201,7 +201,7 @@ const createTables = () => {
         CREATE INDEX IF NOT EXISTS idx_messages_conversation 
         ON messages(conversation_id, created_at DESC)
       `);
-
+      
       db.run(`
         CREATE INDEX IF NOT EXISTS idx_messages_receiver_unread 
         ON messages(receiver_id, is_read)
