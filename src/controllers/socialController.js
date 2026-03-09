@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const db = require('../config/database');
+const { isUserOnline } = require('../services/socketService'); // ✅ AJOUTÉ
 
 // ==========================================
 // GET FRIENDS LIST
@@ -35,7 +36,7 @@ exports.getFriends = async (req, res) => {
         xp: row.xp,
         league: row.league,
         unique_id: row.unique_id,
-        is_online: 0,
+        is_online: isUserOnline(row.id) ? 1 : 0, // ✅ VÉRIFIE EN TEMPS RÉEL
         created_at: row.created_at,
       }));
 
@@ -260,7 +261,7 @@ exports.searchUsers = async (req, res) => {
           ...u, 
           avatar: u.avatar || 'king',
           friendship_status: null, 
-          is_online: false 
+          is_online: isUserOnline(u.id) // ✅ VÉRIFIE EN TEMPS RÉEL
         })));
       }
 
@@ -273,7 +274,7 @@ exports.searchUsers = async (req, res) => {
         ...u,
         avatar: u.avatar || 'king',
         friendship_status: friendshipMap[u.id] || null,
-        is_online: false,
+        is_online: isUserOnline(u.id), // ✅ VÉRIFIE EN TEMPS RÉEL
       }));
 
       res.json(result);
@@ -302,7 +303,7 @@ exports.searchFriends = async (req, res) => {
     const result = friends.map(f => ({
       ...f,
       avatar: f.avatar || 'king',
-      is_online: 0,
+      is_online: isUserOnline(f.id) ? 1 : 0, // ✅ VÉRIFIE EN TEMPS RÉEL
     }));
 
     res.json(result);

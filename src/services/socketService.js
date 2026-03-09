@@ -6,8 +6,11 @@ let io;
 const waitingPlayers = new Map(); // difficulty -> [players]
 const activeDuels = new Map(); // duelId -> socket info
 
+// ✅ NOUVEAU : Gestion de la présence des utilisateurs
+const onlineUsers = new Map(); // userId -> socketId
+
 // ==========================================
-// BOT SIMULATION - Pour tester seul
+// BOT SIMULATION
 // ==========================================
 const BOT_USER = {
   userId: 999,
@@ -15,7 +18,6 @@ const BOT_USER = {
   socketId: 'bot-socket-id',
 };
 
-// Simule un bot qui joue automatiquement
 function simulateBotPlay(duelId, solution, playerSocketId) {
   let progress = 0;
   let mistakes = 0;
@@ -29,21 +31,17 @@ function simulateBotPlay(duelId, solution, playerSocketId) {
       return;
     }
     
-    // Le bot fait des progrès aléatoires (5-15% par update)
     const increment = Math.floor(Math.random() * 11) + 5;
     progress = Math.min(100, progress + increment);
     
-    // Le bot fait parfois des erreurs (15% de chance par update)
-    if (Math.random() < 0.15 && mistakes < 2) {  // Max 2 erreurs pour le bot
+    if (Math.random() < 0.15 && mistakes < 2) {
       mistakes++;
       console.log(`🤖 Bot made a mistake! (${mistakes}/3)`);
     }
     
-    // Mettre à jour la base de données
     Duel.updateProgress(duelId, BOT_USER.userId, progress, mistakes)
       .catch(err => console.error('Bot progress update error:', err));
     
-    // Envoyer la progression au joueur réel
     io.to(playerSocketId).emit('opponent_progress', { 
       progress, 
       mistakes 
@@ -51,38 +49,35 @@ function simulateBotPlay(duelId, solution, playerSocketId) {
     
     console.log(`🤖 Bot progress: ${progress}% (${mistakes} mistakes)`);
     
-    // Si le bot fait 3 erreurs, il est éliminé
     if (mistakes >= 3) {
       clearInterval(botInterval);
-      
       io.to(playerSocketId).emit('opponent_eliminated');
-      
-      // Mettre à jour le winner
       Duel.complete(duelId, duelId.player1Id)
         .catch(err => console.error('Bot elimination completion error:', err));
-      
       activeDuels.delete(duelId);
       console.log(`💀 Bot eliminated by 3 mistakes in duel ${duelId}`);
       return;
     }
     
-    // Le bot termine vers 95-100% (mais avec délai pour que le joueur puisse gagner)
     if (progress >= 95) {
       clearInterval(botInterval);
-      
       console.log(`🤖 Bot approaching completion at ${progress}%...`);
-      
-      // Délai pour donner une chance au joueur de gagner
       setTimeout(() => {
         if (activeDuels.has(duelId)) {
-          // Si le duel est toujours actif, le bot termine
-          // (mais dans la vraie vie, le joueur devrait avoir fini avant)
           console.log(`🤖 Bot finished! Player should win by being faster.`);
         }
-      }, 5000); // 5 secondes de délai
+      }, 5000);
     }
     
-  }, 4000); // Le bot joue toutes les 4 secondes (un peu plus rapide que 5s)
+  }, 4000);
+}
+
+// ==========================================
+// ✅ HELPER: Broadcaster le statut online des amis
+// ==========================================
+function broadcastFriendsStatus(userId) {
+  // Envoyer à tous les utilisateurs en ligne le statut de leurs amis
+  io.emit('friends_status_update');
 }
 
 // ==========================================
@@ -96,36 +91,77 @@ exports.initializeSocket = (socketIo) => {
     console.log(`✅ Socket connected: ${socket.id}`);
     
     // ==========================================
+    // ✅ PRÉSENCE UTILISATEUR
+    // ==========================================
+    
+    socket.on('user_online', async (userId) => {
+      try {
+        console.log(`👤 User ${userId} is now ONLINE`);
+        
+        // Stocker le socket de l'utilisateur
+        onlineUsers.set(userId, socket.id);
+        
+        // Broadcaster aux amis que cet utilisateur est en ligne
+        broadcastFriendsStatus(userId);
+        
+      } catch (error) {
+        console.error('Error handling user_online:', error);
+      }
+    });
+    
+    socket.on('user_offline', async (userId) => {
+      try {
+        console.log(`👤 User ${userId} is now OFFLINE`);
+        
+        // Retirer de la liste des utilisateurs en ligne
+        onlineUsers.delete(userId);
+        
+        // Broadcaster aux amis que cet utilisateur est hors ligne
+        broadcastFriendsStatus(userId);
+        
+      } catch (error) {
+        console.error('Error handling user_offline:', error);
+      }
+    });
+    
+    // ✅ Vérifier si un utilisateur est en ligne
+    socket.on('check_user_status', ({ userId }, callback) => {
+      const isOnline = onlineUsers.has(userId);
+      callback({ isOnline });
+    });
+    
+    // ✅ Vérifier le statut de plusieurs utilisateurs (liste d'amis)
+    socket.on('check_friends_status', ({ friendIds }, callback) => {
+      const statuses = {};
+      friendIds.forEach(friendId => {
+        statuses[friendId] = onlineUsers.has(friendId);
+      });
+      callback(statuses);
+    });
+    
+    // ==========================================
     // MATCHMAKING
     // ==========================================
     
-    // Search for duel opponent
     socket.on('search_duel', async ({ difficulty, userId }) => {
       try {
         console.log(`🔍 User ${userId} searching for ${difficulty} duel`);
         
-        // Check if there's a waiting player
         if (!waitingPlayers.has(difficulty)) {
           waitingPlayers.set(difficulty, []);
         }
         
         const waiting = waitingPlayers.get(difficulty);
         
-        // ✅ FIX: Chercher un joueur réel d'abord
         if (waiting.length > 0) {
-          // Match found with another real player!
           const opponent = waiting.shift();
           
           console.log(`🎮 Real player match found! ${userId} vs ${opponent.userId}`);
           
-          // Generate Sudoku
           const { grid, solution } = generateSudoku(difficulty);
-          
-          // Create duel in database
           const result = await Duel.create(opponent.userId, userId, grid, solution, difficulty);
           const duel = await Duel.findById(result.id);
           
-          // Get usernames
           const player1 = await User.findById(opponent.userId);
           const player2 = await User.findById(userId);
           
@@ -146,7 +182,6 @@ exports.initializeSocket = (socketIo) => {
             created_at: duel.created_at,
           };
           
-          // Store active duel
           activeDuels.set(duel.id, {
             player1Socket: opponent.socketId,
             player2Socket: socket.id,
@@ -154,20 +189,15 @@ exports.initializeSocket = (socketIo) => {
             player2Id: userId,
           });
           
-          // Notify both players
           io.to(opponent.socketId).emit('duel_found', duelData);
           io.to(socket.id).emit('duel_found', duelData);
           
           console.log(`✅ Real player duel ${duel.id} created between ${opponent.userId} and ${userId}`);
           
         } else {
-          // ✅ MODE BOT: Pas de joueur en attente → Créer un match avec le bot
           console.log(`🤖 No players waiting, creating BOT match for user ${userId}`);
           
-          // Generate Sudoku
           const { grid, solution } = generateSudoku(difficulty);
-          
-          // Get real player info
           const player = await User.findById(userId);
           
           if (!player) {
@@ -176,7 +206,6 @@ exports.initializeSocket = (socketIo) => {
             return;
           }
           
-          // ✅ Create duel with bot (player is player1, bot is player2)
           const result = await Duel.create(userId, BOT_USER.userId, grid, solution, difficulty);
           const duel = await Duel.findById(result.id);
           
@@ -185,7 +214,7 @@ exports.initializeSocket = (socketIo) => {
             player1_id: duel.player1_id,
             player2_id: duel.player2_id,
             player1_name: player.username,
-            player2_name: BOT_USER.username,  // ← Bot name "amitest"
+            player2_name: BOT_USER.username,
             grid: duel.grid,
             solution: duel.solution,
             difficulty: duel.difficulty,
@@ -197,7 +226,6 @@ exports.initializeSocket = (socketIo) => {
             created_at: duel.created_at,
           };
           
-          // Store active duel
           activeDuels.set(duel.id, {
             player1Socket: socket.id,
             player2Socket: BOT_USER.socketId,
@@ -205,12 +233,10 @@ exports.initializeSocket = (socketIo) => {
             player2Id: BOT_USER.userId,
           });
           
-          // Notify player
           io.to(socket.id).emit('duel_found', duelData);
           
           console.log(`✅ Bot duel ${duel.id} created: ${player.username} vs ${BOT_USER.username}`);
           
-          // ✅ Start bot simulation
           simulateBotPlay(duel.id, duel.solution, socket.id);
         }
         
@@ -220,7 +246,6 @@ exports.initializeSocket = (socketIo) => {
       }
     });
     
-    // Cancel search
     socket.on('cancel_search', ({ difficulty, userId }) => {
       if (waitingPlayers.has(difficulty)) {
         const waiting = waitingPlayers.get(difficulty);
@@ -237,25 +262,20 @@ exports.initializeSocket = (socketIo) => {
     // GAMEPLAY
     // ==========================================
     
-    // Update progress
     socket.on('update_progress', async ({ duel_id, progress, mistakes }) => {
       try {
         const duelInfo = activeDuels.get(duel_id);
         
         if (!duelInfo) return;
         
-        // Determine which player
         const isPlayer1 = socket.id === duelInfo.player1Socket;
         const opponentSocket = isPlayer1 ? duelInfo.player2Socket : duelInfo.player1Socket;
         
-        // Get duel to find player ID
         const duel = await Duel.findById(duel_id);
         const playerId = isPlayer1 ? duel.player1_id : duel.player2_id;
         
-        // Update database
         await Duel.updateProgress(duel_id, playerId, progress, mistakes || 0);
         
-        // Notify opponent (only if not bot)
         if (opponentSocket !== BOT_USER.socketId) {
           io.to(opponentSocket).emit('opponent_progress', { 
             progress, 
@@ -270,29 +290,24 @@ exports.initializeSocket = (socketIo) => {
       }
     });
     
-    // Duel completed
     socket.on('duel_completed', async ({ duel_id }) => {
       try {
         const duelInfo = activeDuels.get(duel_id);
         
         if (!duelInfo) return;
         
-        // Determine winner
         const isPlayer1 = socket.id === duelInfo.player1Socket;
         const opponentSocket = isPlayer1 ? duelInfo.player2Socket : duelInfo.player1Socket;
         const winnerId = isPlayer1 ? duelInfo.player1Id : duelInfo.player2Id;
         
-        // Update database
         await Duel.complete(duel_id, winnerId);
         
-        // Notify opponent (only if not bot)
         if (opponentSocket !== BOT_USER.socketId) {
           io.to(opponentSocket).emit('duel_finished', { 
             winner_id: isPlayer1 ? 'player1' : 'player2' 
           });
         }
         
-        // Remove from active duels
         activeDuels.delete(duel_id);
         
         console.log(`🏆 Duel ${duel_id} completed - Winner: ${winnerId}`);
@@ -302,27 +317,22 @@ exports.initializeSocket = (socketIo) => {
       }
     });
     
-    // Player eliminated (3 mistakes)
     socket.on('player_eliminated', async ({ duel_id }) => {
       try {
         const duelInfo = activeDuels.get(duel_id);
         
         if (!duelInfo) return;
         
-        // Determine loser and winner
         const isPlayer1 = socket.id === duelInfo.player1Socket;
         const opponentSocket = isPlayer1 ? duelInfo.player2Socket : duelInfo.player1Socket;
         const winnerId = isPlayer1 ? duelInfo.player2Id : duelInfo.player1Id;
         
-        // Update database
         await Duel.complete(duel_id, winnerId);
         
-        // Notify opponent (only if not bot)
         if (opponentSocket !== BOT_USER.socketId) {
           io.to(opponentSocket).emit('opponent_eliminated');
         }
         
-        // Remove from active duels
         activeDuels.delete(duel_id);
         
         console.log(`⚠️ Player eliminated in duel ${duel_id} - Winner: ${winnerId}`);
@@ -332,27 +342,22 @@ exports.initializeSocket = (socketIo) => {
       }
     });
     
-    // Abandon duel
     socket.on('abandon_duel', async ({ duel_id }) => {
       try {
         const duelInfo = activeDuels.get(duel_id);
         
         if (!duelInfo) return;
         
-        // Determine who abandoned and who wins
         const isPlayer1 = socket.id === duelInfo.player1Socket;
         const opponentSocket = isPlayer1 ? duelInfo.player2Socket : duelInfo.player1Socket;
         const winnerId = isPlayer1 ? duelInfo.player2Id : duelInfo.player1Id;
         
-        // Update database
         await Duel.complete(duel_id, winnerId);
         
-        // Notify opponent (only if not bot)
         if (opponentSocket !== BOT_USER.socketId) {
           io.to(opponentSocket).emit('opponent_disconnected');
         }
         
-        // Remove from active duels
         activeDuels.delete(duel_id);
         
         console.log(`🏃 Player abandoned duel ${duel_id} - Winner by default: ${winnerId}`);
@@ -366,7 +371,6 @@ exports.initializeSocket = (socketIo) => {
     // IN-GAME MESSAGES
     // ==========================================
     
-    // Send in-game message
     socket.on('duel_message', ({ duel_id, sender_id, content }) => {
       try {
         const duelInfo = activeDuels.get(duel_id);
@@ -376,14 +380,12 @@ exports.initializeSocket = (socketIo) => {
         const isPlayer1 = socket.id === duelInfo.player1Socket;
         const opponentSocket = isPlayer1 ? duelInfo.player2Socket : duelInfo.player1Socket;
         
-        // Send message to opponent (only if not bot)
         if (opponentSocket !== BOT_USER.socketId) {
           io.to(opponentSocket).emit('duel_message', { 
             sender_id,
             content 
           });
         } else {
-          // ✅ Bot responds with random message after delay
           const botMessages = [
             '👍 Bien joué !',
             '😎 Continue comme ça',
@@ -416,7 +418,16 @@ exports.initializeSocket = (socketIo) => {
     socket.on('disconnect', () => {
       console.log(`❌ Socket disconnected: ${socket.id}`);
       
-      // Remove from waiting lists
+      // ✅ Retirer de la liste des utilisateurs en ligne
+      for (const [userId, socketId] of onlineUsers.entries()) {
+        if (socketId === socket.id) {
+          onlineUsers.delete(userId);
+          console.log(`👤 User ${userId} went OFFLINE (disconnect)`);
+          broadcastFriendsStatus(userId);
+          break;
+        }
+      }
+      
       for (const [difficulty, waiting] of waitingPlayers.entries()) {
         const index = waiting.findIndex(p => p.socketId === socket.id);
         if (index !== -1) {
@@ -425,7 +436,6 @@ exports.initializeSocket = (socketIo) => {
         }
       }
       
-      // Handle active duels
       for (const [duelId, duelInfo] of activeDuels.entries()) {
         if (duelInfo.player1Socket === socket.id || duelInfo.player2Socket === socket.id) {
           const opponentSocket = duelInfo.player1Socket === socket.id 
@@ -436,17 +446,14 @@ exports.initializeSocket = (socketIo) => {
             ? duelInfo.player2Id
             : duelInfo.player1Id;
           
-          // Update database
           Duel.complete(duelId, winnerId).catch(err => {
             console.error('Error completing duel on disconnect:', err);
           });
           
-          // Notify opponent (only if not bot)
           if (opponentSocket !== BOT_USER.socketId) {
             io.to(opponentSocket).emit('opponent_disconnected');
           }
           
-          // Remove from active duels
           activeDuels.delete(duelId);
           
           console.log(`🔌 Duel ${duelId} ended due to disconnect - Winner: ${winnerId}`);
@@ -454,6 +461,16 @@ exports.initializeSocket = (socketIo) => {
       }
     });
   });
+};
+
+// ✅ NOUVEAU : Fonction pour vérifier si un utilisateur est en ligne
+exports.isUserOnline = (userId) => {
+  return onlineUsers.has(userId);
+};
+
+// ✅ NOUVEAU : Fonction pour récupérer tous les utilisateurs en ligne
+exports.getOnlineUsers = () => {
+  return Array.from(onlineUsers.keys());
 };
 
 exports.getIo = () => io;
