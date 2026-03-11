@@ -2,7 +2,7 @@ const Duel = require('../models/Duel');
 const User = require('../models/User');
 const { generateSudoku } = require('../services/sudokuGenerator');
 const db = require('../config/database');
-const { getIo } = require('../services/socketService'); // ✅ AJOUTÉ
+const { getIo } = require('../services/socketService');
 
 // ✅ Challenge friend - CRÉE UNE INVITATION
 exports.challengeFriend = async (req, res) => {
@@ -32,13 +32,13 @@ exports.challengeFriend = async (req, res) => {
         
         console.log(`✅ Duel invitation created: ${userId} → ${friend_id} (${difficulty})`);
         
-        // ✅ NOUVEAU : Notifier l'ami via Socket.IO
         const io = getIo();
         if (io) {
           io.emit('new_duel_invitation', {
             to_user_id: friend_id,
             invitation_id: this.lastID,
           });
+          console.log(`🔔 Emitted new_duel_invitation to user ${friend_id}`);
         }
         
         res.status(201).json({
@@ -97,6 +97,8 @@ exports.acceptInvitation = async (req, res) => {
     const { invitationId } = req.params;
     const userId = req.userId;
     
+    console.log(`📥 User ${userId} accepting invitation ${invitationId}`);
+    
     // Récupérer l'invitation
     db.get(
       'SELECT * FROM duel_invitations WHERE id = ? AND to_user_id = ? AND status = ?',
@@ -108,12 +110,16 @@ exports.acceptInvitation = async (req, res) => {
         }
         
         if (!invitation) {
+          console.log(`❌ Invitation ${invitationId} not found or already processed`);
           return res.status(404).json({ error: 'Invitation not found' });
         }
+        
+        console.log(`✅ Invitation found: ${invitation.from_user_id} → ${userId}`);
         
         try {
           // Générer la grille
           const { grid, solution } = generateSudoku(invitation.difficulty);
+          console.log(`✅ Sudoku grid generated for difficulty: ${invitation.difficulty}`);
           
           // Créer le duel
           const result = await Duel.create(
@@ -158,17 +164,30 @@ exports.acceptInvitation = async (req, res) => {
             created_at: duel.created_at,
           };
           
-          // ✅ NOUVEAU : Notifier les 2 joueurs via Socket.IO
+          console.log(`🔍 DEBUG: About to emit duel_accepted with data:`, {
+            player1_id: invitation.from_user_id,
+            player2_id: userId,
+            duel_id: duel.id,
+            has_grid: !!duelData.grid,
+            has_solution: !!duelData.solution
+          });
+          
+          // ✅ Notifier les 2 joueurs via Socket.IO
           const io = getIo();
           if (io) {
-            // Notifier TOUS les utilisateurs connectés avec cet événement
             io.emit('duel_accepted', {
               duel: duelData,
               player1_id: invitation.from_user_id,
               player2_id: userId,
             });
             
-            console.log(`🔔 Socket notification sent for duel ${duel.id}`);
+            console.log(`🔔 Emitting duel_accepted to all clients:`, {
+              player1_id: invitation.from_user_id,
+              player2_id: userId,
+              duel_id: duel.id
+            });
+          } else {
+            console.log(`⚠️ WARNING: Socket.IO not available!`);
           }
           
           res.json(duelData);
