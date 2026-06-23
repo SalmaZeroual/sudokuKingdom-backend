@@ -22,4 +22,7 @@ router.put('/password', userController.changePassword);
 // ✅ NOUVEAU : Update avatar
 router.put('/avatar', userController.updateAvatar);
 
+// ✅ Paramètre de découvrabilité : 'id_only' ou 'username'
+router.patch('/discoverability', userController.updateDiscoverability);
+
 module.exports = router;

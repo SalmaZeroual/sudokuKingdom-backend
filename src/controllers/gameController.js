@@ -211,3 +211,95 @@ exports.getGameHistory = async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 };
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /game/sync-offline
+// Reçoit les parties jouées hors-ligne, calcule et crédite les XP
+// Body: { games: [{ difficulty, mode, time_elapsed, mistakes, completed_at }] }
+// ─────────────────────────────────────────────────────────────────────────────
+exports.syncOfflineGames = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { games } = req.body;
+
+    if (!Array.isArray(games) || games.length === 0) {
+      return res.status(400).json({ error: 'games array is required' });
+    }
+
+    // Limite de sécurité : max 20 parties par sync
+    const toSync = games.slice(0, 20);
+
+    let totalXP  = 0;
+    let synced   = 0;
+    const results = [];
+
+    for (const g of toSync) {
+      const { difficulty, mode, time_elapsed, mistakes, completed_at } = g;
+
+      if (!difficulty || !time_elapsed) continue;
+
+      // Calculer les XP avec la même logique que completeGame
+      const xpEarned = calculateXP(difficulty, time_elapsed, mistakes || 0);
+
+      // Enregistrer la partie dans l'historique
+      try {
+        const { grid, solution } = { grid: '[]', solution: '[]' }; // offline: pas de grille
+        await new Promise((resolve, reject) => {
+          db.run(
+            `INSERT INTO games
+               (user_id, grid, solution, difficulty, mode, status, time_elapsed, mistakes, created_at, completed_at)
+             VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?)`,
+            [
+              userId,
+              grid,
+              solution,
+              difficulty,
+              mode || 'classic',
+              time_elapsed,
+              mistakes || 0,
+              completed_at || new Date().toISOString(),
+              completed_at || new Date().toISOString(),
+            ],
+            function (err) {
+              if (err) reject(err);
+              else resolve(this.lastID);
+            }
+          );
+        });
+
+        totalXP += xpEarned;
+        synced++;
+        results.push({ difficulty, xp_earned: xpEarned });
+      } catch (err) {
+        console.error('Sync game insert error:', err);
+      }
+    }
+
+    // Créditer les XP en une seule fois
+    if (totalXP > 0) {
+      await User.updateXP(userId, totalXP);
+    }
+
+    // Retourner l'utilisateur mis à jour
+    const user = await User.findById(userId);
+
+    console.log(`✅ Sync offline: ${synced} partie(s), +${totalXP} XP pour user ${userId}`);
+
+    res.json({
+      synced,
+      total_xp_earned: totalXP,
+      results,
+      user: {
+        id:       user.id,
+        username: user.username,
+        xp:       user.xp,
+        level:    user.level,
+        wins:     user.wins,
+        streak:   user.streak,
+      },
+    });
+
+  } catch (error) {
+    console.error('Sync offline error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};

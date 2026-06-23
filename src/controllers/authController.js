@@ -260,6 +260,8 @@ exports.login = async (req, res) => {
         wins: user.wins,
         streak: user.streak,
         league: user.league,
+        unique_id: user.unique_id,           // ✅ manquait : cause du rechargement requis
+        discoverability: user.discoverability ?? 'id_only',
       },
     });
     

@@ -4,10 +4,14 @@ const { generateSudoku } = require('./sudokuGenerator');
 
 let io;
 const waitingPlayers = new Map(); // difficulty -> [players]
-const activeDuels = new Map(); // duelId -> socket info
+const activeDuels = new Map();    // duelId -> { player1Socket, player2Socket, player1Id, player2Id }
 
 // ✅ NOUVEAU : Gestion de la présence des utilisateurs
 const onlineUsers = new Map(); // userId -> socketId
+
+// ✅ NOUVEAU : Pour les duels par invitation, les deux joueurs s'enregistrent
+// via 'register_duel'. Dès que les deux sont connectés → activeDuels est peuplé.
+const pendingDuelRegistrations = new Map();
 
 // ==========================================
 // BOT SIMULATION
@@ -412,6 +416,57 @@ exports.initializeSocket = (socketIo) => {
     });
     
     // ==========================================
+    // REGISTER DUEL (invitations par ami)
+    // ==========================================
+    //
+    // ✅ Bug corrigé : pour les duels par invitation, activeDuels n'était jamais
+    // peuplé → tous les 'update_progress' étaient silencieusement ignorés.
+    //
+    // Chaque joueur émet 'register_duel' après avoir reçu 'duel_accepted'.
+    // Dès que les deux sont enregistrés, on crée l'entrée dans activeDuels.
+
+    socket.on('register_duel', ({ duel_id, player1_id, player2_id }) => {
+      try {
+        // Chercher à quel userId appartient ce socket via onlineUsers
+        let currentUserId = null;
+        for (const [uid, sid] of onlineUsers.entries()) {
+          if (sid === socket.id) { currentUserId = uid; break; }
+        }
+
+        // Comparer en Number (les IDs peuvent arriver comme String ou Number)
+        const p1 = Number(player1_id);
+        const p2 = Number(player2_id);
+        const me = Number(currentUserId);
+
+        if (!pendingDuelRegistrations.has(duel_id)) {
+          pendingDuelRegistrations.set(duel_id, {
+            player1_id: p1, player2_id: p2,
+            player1Socket: null, player2Socket: null,
+          });
+        }
+
+        const reg = pendingDuelRegistrations.get(duel_id);
+        if (me === p1)      reg.player1Socket = socket.id;
+        else if (me === p2) reg.player2Socket = socket.id;
+
+        console.log(`📋 register_duel ${duel_id}: p1=${reg.player1Socket ? '✅' : '⏳'} p2=${reg.player2Socket ? '✅' : '⏳'}`);
+
+        if (reg.player1Socket && reg.player2Socket) {
+          activeDuels.set(duel_id, {
+            player1Socket: reg.player1Socket,
+            player2Socket: reg.player2Socket,
+            player1Id: reg.player1_id,
+            player2Id: reg.player2_id,
+          });
+          pendingDuelRegistrations.delete(duel_id);
+          console.log(`✅ Duel ${duel_id} activé dans activeDuels (via invitation)`);
+        }
+      } catch (error) {
+        console.error('register_duel error:', error);
+      }
+    });
+
+    // ==========================================
     // DISCONNECT HANDLING
     // ==========================================
     
@@ -474,3 +529,17 @@ exports.getOnlineUsers = () => {
 };
 
 exports.getIo = () => io;
+
+// ✅ NOUVEAU : Émettre un événement socket vers UN utilisateur précis (par userId).
+// Utilisé par duelController pour cibler les deux joueurs au lieu de io.emit() global.
+exports.emitToUser = (userId, event, data) => {
+  const numId = Number(userId);
+  const socketId = onlineUsers.get(numId) || onlineUsers.get(String(userId));
+  if (socketId && io) {
+    io.to(socketId).emit(event, data);
+    console.log(`📡 emitToUser: ${event} → user ${userId} (socket ${socketId})`);
+    return true;
+  }
+  console.warn(`⚠️  emitToUser: user ${userId} not found in onlineUsers`);
+  return false;
+};

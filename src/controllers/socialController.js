@@ -224,62 +224,73 @@ exports.getPendingRequests = async (req, res) => {
   }
 };
 
-// ==========================================
-// ✅ MODIFIÉ : SEARCH USERS BY EXACT unique_id
-// ==========================================
+// ══════════════════════════════════════════════
+// SEARCH USERS
+// • 10 chiffres exacts → recherche par unique_id (toujours)
+// • Texte quelconque  → recherche par username UNIQUEMENT pour les
+//   utilisateurs ayant activé discoverability = 'username'
+// ══════════════════════════════════════════════
 exports.searchUsers = async (req, res) => {
   try {
     const { query } = req.query;
     const userId = req.userId;
 
-    if (!query) {
+    if (!query || query.trim().length === 0) {
       return res.status(400).json({ error: 'Search query is required' });
     }
 
-    // ✅ Vérifier si c'est exactement 10 chiffres
-    if (!/^\d{10}$/.test(query)) {
-      return res.json([]);
+    const trimmed = query.trim();
+    const isExactId = /^\d{10}$/.test(trimmed);
+
+    // Migration douce : ajoute la colonne si absente
+    await new Promise((resolve) => {
+      db.run(
+        "ALTER TABLE users ADD COLUMN discoverability TEXT DEFAULT 'id_only'",
+        () => resolve()
+      );
+    });
+
+    let users = [];
+    if (isExactId) {
+      // Recherche par unique_id — toujours autorisé
+      users = await User.search(trimmed, userId);
+    } else {
+      // Recherche par nom — uniquement les utilisateurs qui l'ont activé
+      users = await new Promise((resolve, reject) => {
+        db.all(
+          `SELECT id, username, level, avatar, xp, league, unique_id
+           FROM users
+           WHERE LOWER(username) LIKE LOWER(?)
+             AND discoverability = 'username'
+             AND id != ?
+           LIMIT 20`,
+          [`%${trimmed}%`, userId],
+          (err, rows) => err ? reject(err) : resolve(rows || [])
+        );
+      });
     }
 
-    const users = await User.search(query, userId);
+    if (!users || users.length === 0) return res.json([]);
 
     const friendIds = users.map(u => u.id);
-
-    if (friendIds.length === 0) {
-      return res.json([]);
-    }
-
     const sql = `
-      SELECT friend_id, status FROM friendships 
-      WHERE user_id = ? AND friend_id IN (${users.map(() => '?').join(',')})
+      SELECT friend_id, status FROM friendships
+      WHERE user_id = ? AND friend_id IN (${friendIds.map(() => '?').join(',')})
     `;
 
     db.all(sql, [userId, ...friendIds], (err, friendships) => {
-      if (err) {
-        console.error('Check friendships error:', err);
-        return res.json(users.map(u => ({ 
-          ...u, 
-          avatar: u.avatar || 'king',
-          friendship_status: null, 
-          is_online: isUserOnline(u.id) // ✅ VÉRIFIE EN TEMPS RÉEL
-        })));
-      }
-
       const friendshipMap = {};
-      friendships.forEach(f => {
-        friendshipMap[f.friend_id] = f.status;
-      });
+      if (!err) friendships.forEach(f => { friendshipMap[f.friend_id] = f.status; });
 
       const result = users.map(u => ({
         ...u,
         avatar: u.avatar || 'king',
         friendship_status: friendshipMap[u.id] || null,
-        is_online: isUserOnline(u.id), // ✅ VÉRIFIE EN TEMPS RÉEL
+        is_online: isUserOnline(u.id),
       }));
 
       res.json(result);
     });
-
   } catch (error) {
     console.error('Search users error:', error);
     res.status(500).json({ error: 'Server error' });

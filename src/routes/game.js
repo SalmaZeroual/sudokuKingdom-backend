@@ -12,4 +12,7 @@ router.get('/boosters', gameController.getBoosters);
 router.post('/use-booster', gameController.useBooster);
 router.get('/history', gameController.getGameHistory);
 
+// ✅ OFFLINE: synchronisation des parties hors-ligne
+router.post('/sync-offline', gameController.syncOfflineGames);
+
 module.exports = router;

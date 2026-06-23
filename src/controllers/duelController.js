@@ -2,7 +2,7 @@ const Duel = require('../models/Duel');
 const User = require('../models/User');
 const { generateSudoku } = require('../services/sudokuGenerator');
 const db = require('../config/database');
-const { getIo } = require('../services/socketService');
+const { getIo, emitToUser } = require('../services/socketService');
 
 // ✅ Challenge friend - CRÉE UNE INVITATION
 exports.challengeFriend = async (req, res) => {
@@ -32,13 +32,13 @@ exports.challengeFriend = async (req, res) => {
         
         console.log(`✅ Duel invitation created: ${userId} → ${friend_id} (${difficulty})`);
         
-        const io = getIo();
-        if (io) {
-          io.emit('new_duel_invitation', {
-            to_user_id: friend_id,
-            invitation_id: this.lastID,
-          });
-          console.log(`🔔 Emitted new_duel_invitation to user ${friend_id}`);
+        // ✅ Cibler uniquement l'ami invité (avant : io.emit = tout le monde)
+        const notified = emitToUser(friend_id, 'new_duel_invitation', {
+          to_user_id: friend_id,
+          invitation_id: this.lastID,
+        });
+        if (!notified) {
+          console.warn(`⚠️  User ${friend_id} is offline, invitation stored for later`);
         }
         
         res.status(201).json({
@@ -172,20 +172,20 @@ exports.acceptInvitation = async (req, res) => {
             has_solution: !!duelData.solution
           });
           
-          // ✅ Notifier les 2 joueurs via Socket.IO
+          // ✅ Notifier UNIQUEMENT les 2 joueurs (avant : io.emit = tout le monde)
           const io = getIo();
           if (io) {
-            io.emit('duel_accepted', {
+            const eventData = {
               duel: duelData,
               player1_id: invitation.from_user_id,
               player2_id: userId,
-            });
+            };
+            // Notifier le joueur inviteur (player1) via socket ciblé
+            emitToUser(invitation.from_user_id, 'duel_accepted', eventData);
+            // Notifier le joueur invité (player2) via socket ciblé
+            emitToUser(userId, 'duel_accepted', eventData);
             
-            console.log(`🔔 Emitting duel_accepted to all clients:`, {
-              player1_id: invitation.from_user_id,
-              player2_id: userId,
-              duel_id: duel.id
-            });
+            console.log(`🔔 duel_accepted envoyé à player1=${invitation.from_user_id} et player2=${userId}`);
           } else {
             console.log(`⚠️ WARNING: Socket.IO not available!`);
           }

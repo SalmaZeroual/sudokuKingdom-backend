@@ -269,3 +269,43 @@ exports.updateAvatar = async (req, res) => {
     res.status(500).json({ error: 'Erreur lors de la mise à jour de l\'avatar' });
   }
 };
+
+// ══════════════════════════════════════════════
+// PATCH /user/discoverability
+// Permet à l'utilisateur de choisir comment il
+// peut être trouvé : 'id_only' ou 'username'
+// ══════════════════════════════════════════════
+exports.updateDiscoverability = async (req, res) => {
+  try {
+    const { discoverability } = req.body;
+    const userId = req.userId;
+
+    if (!['id_only', 'username'].includes(discoverability)) {
+      return res.status(400).json({
+        error: "Valeur invalide. Utilisez 'id_only' ou 'username'."
+      });
+    }
+
+    // Ajouter la colonne si elle n'existe pas encore (migration douce)
+    const db = require('../config/database');
+    await new Promise((resolve) => {
+      db.run(
+        "ALTER TABLE users ADD COLUMN discoverability TEXT DEFAULT 'id_only'",
+        () => resolve() // ignore error si la colonne existe déjà
+      );
+    });
+
+    await new Promise((resolve, reject) => {
+      db.run(
+        'UPDATE users SET discoverability = ? WHERE id = ?',
+        [discoverability, userId],
+        (err) => err ? reject(err) : resolve()
+      );
+    });
+
+    res.json({ discoverability });
+  } catch (error) {
+    console.error('Update discoverability error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};

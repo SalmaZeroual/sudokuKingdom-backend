@@ -32,3 +32,18 @@ exports.authenticate = (req, res, next) => {
     return res.status(401).json({ error: 'Invalid token' });
   }
 };
+// ✅ Middleware optionnel : définit req.userId si le token est valide,
+// mais laisse passer même sans token (pour les routes semi-publiques).
+exports.optionalAuthenticate = (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      req.userId = decoded.userId;
+    }
+  } catch (_) {
+    // Token invalide ou absent → pas d'userId, on continue quand même
+  }
+  next();
+};

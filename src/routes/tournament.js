@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const tournamentController = require('../controllers/tournamentController');
-const { authenticate } = require('../middlewares/auth');
+const { authenticate, optionalAuthenticate } = require('../middlewares/auth');
 
-// ✅ Public route - FIX: listTournaments au lieu de getTournaments
-router.get('/list', tournamentController.listTournaments);
+// Route semi-publique : fonctionne sans token, mais si token présent
+// → inclut user_has_joined dans chaque tournoi (évite "Erreur inscription")
+router.get('/list', optionalAuthenticate, tournamentController.listTournaments);
 
 // Protected routes
 router.use(authenticate);

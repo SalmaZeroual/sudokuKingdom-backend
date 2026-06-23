@@ -1,14 +1,24 @@
 const db = require('../config/database');
 
 class Tournament {
-  // ✅ Créer un tournoi (version compatible avec l'ancien code)
-  static create(name, grid, solution, difficulty, startDate, endDate) {
+  // ✅ Créer un tournoi
+  // ⚠️ Prend un OBJET en paramètre (et non des arguments positionnels),
+  // car c'est ainsi qu'il est appelé partout dans le code
+  // (tournamentController.ensureDailyTournaments, dailyTournamentJob.createDailyTournaments).
+  // L'ancien code positionnel causait un mismatch : tout l'objet finissait
+  // dans "name", et grid/solution/difficulty/startDate/endDate valaient undefined,
+  // ce qui violait les contraintes NOT NULL et faisait échouer l'INSERT en silence.
+  static create({ name, grid, solution, difficulty, startDate, endDate }) {
     return new Promise((resolve, reject) => {
       const sql = `
         INSERT INTO tournaments (name, grid, solution, difficulty, start_date, end_date, status, created_at) 
         VALUES (?, ?, ?, ?, ?, ?, 'active', CURRENT_TIMESTAMP)
       `;
-      
+
+      // Normaliser les dates en ISO string (cohérent avec le format déjà stocké en base)
+      const start = startDate instanceof Date ? startDate.toISOString() : startDate;
+      const end = endDate instanceof Date ? endDate.toISOString() : endDate;
+
       db.run(
         sql,
         [
@@ -16,8 +26,8 @@ class Tournament {
           JSON.stringify(grid),
           JSON.stringify(solution),
           difficulty,
-          startDate,
-          endDate
+          start,
+          end
         ],
         function(err) {
           if (err) reject(err);
