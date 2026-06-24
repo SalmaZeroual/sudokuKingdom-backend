@@ -60,32 +60,41 @@ async function ensureDailyTournaments() {
 
 // ─────────────────────────────────────────────
 // GET /tournament/list
-// Optionnellement authentifié : si un token est fourni,
-// chaque tournoi inclut { user_has_joined: true/false }
-// pour que le client puisse afficher "Voir le classement" sans erreur.
+// Optionnellement authentifié. Retourne par tournoi :
+//   user_has_joined   : a rejoint (même sans score)
+//   user_has_finished : a soumis un score > 0
+// Le client affiche :
+//   - "Participer"  si !user_has_joined
+//   - "Continuer"   si user_has_joined && !user_has_finished
+//   - "Classement"  si user_has_finished
 // ─────────────────────────────────────────────
 exports.listTournaments = async (req, res) => {
   try {
     await ensureDailyTournaments();
 
     const tournaments = await Tournament.getActiveTournaments();
-    const userId = req.userId || null; // défini si token valide envoyé
+    const userId = req.userId || null;
 
     const tournamentsWithData = await Promise.all(
       tournaments.map(async (tournament) => {
         const participants = await TournamentParticipation.getTournamentParticipants(tournament.id);
 
-        // Si l'utilisateur est connecté, vérifier s'il a déjà rejoint
         let userHasJoined = false;
+        let userHasFinished = false;
+
         if (userId) {
           const participation = await TournamentParticipation.findByUserAndTournament(userId, tournament.id);
-          userHasJoined = !!participation;
+          if (participation) {
+            userHasJoined = true;
+            userHasFinished = participation.score > 0;
+          }
         }
 
         return {
           ...tournament,
           participants: participants.length,
           user_has_joined: userHasJoined,
+          user_has_finished: userHasFinished,
         };
       })
     );

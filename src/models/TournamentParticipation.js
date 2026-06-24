@@ -59,32 +59,18 @@ class TournamentParticipation {
     });
   }
 
-  // ─────────────────────────────────────────────
-  // 🌍 CLASSEMENT MONDIAL
-  // Inclut tous les participants dès qu'ils ont rejoint,
-  // même sans score encore soumis (score NULL → affiché 0, trié en bas).
-  // ─────────────────────────────────────────────
   static getLeaderboard(tournamentId) {
     return new Promise((resolve, reject) => {
       const sql = `
         SELECT
-          tp.id,
-          tp.tournament_id,
-          tp.user_id,
-          COALESCE(tp.score, 0) as score,
-          COALESCE(tp.time, 0) as time,
-          u.username,
-          ROW_NUMBER() OVER (
-            ORDER BY COALESCE(tp.score, 0) DESC,
-                     CASE WHEN tp.score IS NULL THEN 1 ELSE 0 END ASC,
-                     COALESCE(tp.time, 999999) ASC
-          ) as rank
+          tp.id, tp.tournament_id, tp.user_id,
+          tp.score, tp.time, u.username,
+          ROW_NUMBER() OVER (ORDER BY tp.score DESC, tp.time ASC) as rank
         FROM tournament_participations tp
         JOIN users u ON tp.user_id = u.id
         WHERE tp.tournament_id = ?
-        ORDER BY COALESCE(tp.score, 0) DESC,
-                 CASE WHEN tp.score IS NULL THEN 1 ELSE 0 END ASC,
-                 COALESCE(tp.time, 999999) ASC
+          AND tp.score > 0
+        ORDER BY tp.score DESC, tp.time ASC
         LIMIT 100
       `;
       db.all(sql, [tournamentId], (err, rows) => {
@@ -94,44 +80,26 @@ class TournamentParticipation {
     });
   }
 
-  // ─────────────────────────────────────────────
-  // 👥 CLASSEMENT AMIS
-  // Inclut l'utilisateur lui-même + ses amis acceptés,
-  // dès qu'ils ont rejoint (même sans score soumis).
-  // ─────────────────────────────────────────────
   static getFriendsLeaderboard(tournamentId, userId) {
     return new Promise((resolve, reject) => {
       const sql = `
         SELECT
-          tp.id,
-          tp.tournament_id,
-          tp.user_id,
-          COALESCE(tp.score, 0) as score,
-          COALESCE(tp.time, 0) as time,
-          u.username,
-          ROW_NUMBER() OVER (
-            ORDER BY COALESCE(tp.score, 0) DESC,
-                     CASE WHEN tp.score IS NULL THEN 1 ELSE 0 END ASC,
-                     COALESCE(tp.time, 999999) ASC
-          ) as rank
+          tp.id, tp.tournament_id, tp.user_id,
+          tp.score, tp.time, u.username,
+          ROW_NUMBER() OVER (ORDER BY tp.score DESC, tp.time ASC) as rank
         FROM tournament_participations tp
         JOIN users u ON tp.user_id = u.id
         WHERE tp.tournament_id = ?
+          AND tp.score > 0
           AND (
             tp.user_id = ?
             OR tp.user_id IN (
-              SELECT CASE
-                WHEN sender_id = ? THEN receiver_id
-                ELSE sender_id
-              END
+              SELECT CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END
               FROM friendships
-              WHERE (sender_id = ? OR receiver_id = ?)
-                AND status = 'accepted'
+              WHERE (sender_id = ? OR receiver_id = ?) AND status = 'accepted'
             )
           )
-        ORDER BY COALESCE(tp.score, 0) DESC,
-                 CASE WHEN tp.score IS NULL THEN 1 ELSE 0 END ASC,
-                 COALESCE(tp.time, 999999) ASC
+        ORDER BY tp.score DESC, tp.time ASC
         LIMIT 100
       `;
       db.all(sql, [tournamentId, userId, userId, userId, userId], (err, rows) => {

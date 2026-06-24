@@ -58,7 +58,7 @@ class User {
   static findById(id) {
     return new Promise((resolve, reject) => {
       const sql = `
-        SELECT id, username, email, xp, level, avatar, wins, streak, league, unique_id, created_at 
+        SELECT id, username, email, xp, level, avatar, wins, streak, league, unique_id, discoverability, created_at 
         FROM users 
         WHERE id = ?
       `;

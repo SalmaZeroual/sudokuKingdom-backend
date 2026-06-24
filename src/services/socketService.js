@@ -199,49 +199,72 @@ exports.initializeSocket = (socketIo) => {
           console.log(`✅ Real player duel ${duel.id} created between ${opponent.userId} and ${userId}`);
           
         } else {
-          console.log(`🤖 No players waiting, creating BOT match for user ${userId}`);
-          
-          const { grid, solution } = generateSudoku(difficulty);
-          const player = await User.findById(userId);
-          
-          if (!player) {
-            console.error(`❌ User ${userId} not found`);
-            socket.emit('error', { message: 'User not found' });
-            return;
-          }
-          
-          const result = await Duel.create(userId, BOT_USER.userId, grid, solution, difficulty);
-          const duel = await Duel.findById(result.id);
-          
-          const duelData = {
-            id: duel.id,
-            player1_id: duel.player1_id,
-            player2_id: duel.player2_id,
-            player1_name: player.username,
-            player2_name: BOT_USER.username,
-            grid: duel.grid,
-            solution: duel.solution,
-            difficulty: duel.difficulty,
-            status: 'active',
-            player1_progress: 0,
-            player2_progress: 0,
-            player1_mistakes: 0,
-            player2_mistakes: 0,
-            created_at: duel.created_at,
-          };
-          
-          activeDuels.set(duel.id, {
-            player1Socket: socket.id,
-            player2Socket: BOT_USER.socketId,
-            player1Id: userId,
-            player2Id: BOT_USER.userId,
-          });
-          
-          io.to(socket.id).emit('duel_found', duelData);
-          
-          console.log(`✅ Bot duel ${duel.id} created: ${player.username} vs ${BOT_USER.username}`);
-          
-          simulateBotPlay(duel.id, duel.solution, socket.id);
+          // ✅ Bug corrigé : le bot était créé IMMÉDIATEMENT si personne n'attendait.
+          // Si deux joueurs lancent la recherche presque en même temps, le premier
+          // obtenait un bot avant que le second arrive dans la file.
+          // On attend maintenant 8 secondes pour laisser un vrai joueur se connecter.
+          // Si un vrai joueur arrive pendant ce délai → le timeout est ignoré.
+
+          console.log(`⏳ No players waiting for ${difficulty}, queuing ${userId} for 8s before bot fallback`);
+
+          // Mettre le joueur dans la file d'attente
+          waiting.push({ userId, socketId: socket.id });
+
+          const botTimeout = setTimeout(async () => {
+            // Vérifier si ce joueur est toujours dans la file (pas encore matché)
+            const currentWaiting = waitingPlayers.get(difficulty) || [];
+            const stillWaiting = currentWaiting.findIndex(p => p.userId === userId && p.socketId === socket.id);
+            if (stillWaiting === -1) return; // déjà matché avec un vrai joueur
+
+            // Retirer de la file et créer un bot
+            currentWaiting.splice(stillWaiting, 1);
+
+            console.log(`🤖 No real player found after 8s, creating BOT match for user ${userId}`);
+
+            try {
+              const { grid, solution } = generateSudoku(difficulty);
+              const player = await User.findById(userId);
+
+              if (!player) {
+                console.error(`❌ User ${userId} not found`);
+                socket.emit('error', { message: 'User not found' });
+                return;
+              }
+
+              const result = await Duel.create(userId, BOT_USER.userId, grid, solution, difficulty);
+              const duel = await Duel.findById(result.id);
+
+              const duelData = {
+                id: duel.id,
+                player1_id: duel.player1_id,
+                player2_id: duel.player2_id,
+                player1_name: player.username,
+                player2_name: BOT_USER.username,
+                grid: duel.grid,
+                solution: duel.solution,
+                difficulty: duel.difficulty,
+                status: 'active',
+                player1_progress: 0,
+                player2_progress: 0,
+                player1_mistakes: 0,
+                player2_mistakes: 0,
+                created_at: duel.created_at,
+              };
+
+              activeDuels.set(duel.id, {
+                player1Socket: socket.id,
+                player2Socket: BOT_USER.socketId,
+                player1Id: userId,
+                player2Id: BOT_USER.userId,
+              });
+
+              io.to(socket.id).emit('duel_found', duelData);
+              simulateBotPlay(duel.id, duel.solution, socket.id);
+              console.log(`✅ Bot duel ${duel.id} created: ${player.username} vs ${BOT_USER.username}`);
+            } catch (err) {
+              console.error('Bot duel creation error:', err);
+            }
+          }, 8000);
         }
         
       } catch (error) {
@@ -306,6 +329,19 @@ exports.initializeSocket = (socketIo) => {
         
         await Duel.complete(duel_id, winnerId);
         
+        // ✅ Bug corrigé : avant, seul l'adversaire recevait 'duel_finished'.
+        // Le gagnant ne recevait rien → son écran restait bloqué ou affichait
+        // "Défaite" à cause d'un état par défaut incorrect.
+        // Maintenant on envoie à CHACUN depuis son propre point de vue :
+        //   - winner_id: 'player1' pour player1, 'player2' pour player2.
+        
+        // Notifier le gagnant (celui qui a émis duel_completed)
+        io.to(socket.id).emit('duel_finished', {
+          winner_id: isPlayer1 ? 'player1' : 'player2'
+        });
+        
+        // Notifier le perdant (l'adversaire) avec la même valeur winner_id
+        // (car player1/player2 sont des rôles absolus dans le duel)
         if (opponentSocket !== BOT_USER.socketId) {
           io.to(opponentSocket).emit('duel_finished', { 
             winner_id: isPlayer1 ? 'player1' : 'player2' 
