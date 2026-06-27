@@ -300,12 +300,47 @@ exports.updateDiscoverability = async (req, res) => {
         'UPDATE users SET discoverability = ? WHERE id = ?',
         [discoverability, userId],
         (err) => err ? reject(err) : resolve()
-      );
-    });
+      );    });
 
     res.json({ discoverability });
   } catch (error) {
     console.error('Update discoverability error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// ✅ NOUVEAU : préférence globale "accepter les messages des autres
+// joueurs". Si désactivé, personne (même un ami) ne peut envoyer de
+// message, y compris dans une conversation déjà existante.
+exports.updateMessagePrivacy = async (req, res) => {
+  try {
+    const { accepts_messages } = req.body;
+    const userId = req.userId;
+
+    if (typeof accepts_messages !== 'boolean') {
+      return res.status(400).json({ error: "Valeur invalide. Utilisez true ou false." });
+    }
+
+    const db = require('../config/database');
+    // Migration douce, comme pour discoverability.
+    await new Promise((resolve) => {
+      db.run(
+        'ALTER TABLE users ADD COLUMN accepts_messages INTEGER DEFAULT 1',
+        () => resolve()
+      );
+    });
+
+    await new Promise((resolve, reject) => {
+      db.run(
+        'UPDATE users SET accepts_messages = ? WHERE id = ?',
+        [accepts_messages ? 1 : 0, userId],
+        (err) => err ? reject(err) : resolve()
+      );
+    });
+
+    res.json({ accepts_messages });
+  } catch (error) {
+    console.error('Update message privacy error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };

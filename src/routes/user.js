@@ -25,4 +25,7 @@ router.put('/avatar', userController.updateAvatar);
 // ✅ Paramètre de découvrabilité : 'id_only' ou 'username'
 router.patch('/discoverability', userController.updateDiscoverability);
 
+// ✅ NOUVEAU : Accepter ou non les messages des autres joueurs
+router.patch('/message-privacy', userController.updateMessagePrivacy);
+
 module.exports = router;

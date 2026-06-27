@@ -325,26 +325,38 @@ exports.initializeSocket = (socketIo) => {
         
         const isPlayer1 = socket.id === duelInfo.player1Socket;
         const opponentSocket = isPlayer1 ? duelInfo.player2Socket : duelInfo.player1Socket;
-        const winnerId = isPlayer1 ? duelInfo.player1Id : duelInfo.player2Id;
+        const myId = isPlayer1 ? duelInfo.player1Id : duelInfo.player2Id;
         
-        await Duel.complete(duel_id, winnerId);
+        // ✅ Bug corrigé : avant, on déclarait TOUJOURS l'émetteur gagnant.
+        // Comme les deux joueurs finissent par terminer leur grille, le 2e
+        // à émettre 'duel_completed' réécrasait le résultat du 1er → les
+        // DEUX joueurs se voyaient "Victoire". On vérifie maintenant l'état
+        // réel en base avant de trancher.
+        const existing = await Duel.findById(duel_id);
+        let winnerId;
         
-        // ✅ Bug corrigé : avant, seul l'adversaire recevait 'duel_finished'.
-        // Le gagnant ne recevait rien → son écran restait bloqué ou affichait
-        // "Défaite" à cause d'un état par défaut incorrect.
-        // Maintenant on envoie à CHACUN depuis son propre point de vue :
-        //   - winner_id: 'player1' pour player1, 'player2' pour player2.
+        if (existing && existing.status === 'finished' && existing.winner_id) {
+          // L'adversaire a déjà fini avant nous : le résultat est figé.
+          winnerId = existing.winner_id;
+        } else {
+          const result = await Duel.complete(duel_id, myId);
+          if (result.changes > 0) {
+            winnerId = myId;
+          } else {
+            // Course perdue de quelques millisecondes contre l'adversaire.
+            const refreshed = await Duel.findById(duel_id);
+            winnerId = refreshed.winner_id;
+          }
+        }
         
-        // Notifier le gagnant (celui qui a émis duel_completed)
-        io.to(socket.id).emit('duel_finished', {
-          winner_id: isPlayer1 ? 'player1' : 'player2'
-        });
+        const winnerRole = winnerId === duelInfo.player1Id ? 'player1' : 'player2';
         
-        // Notifier le perdant (l'adversaire) avec la même valeur winner_id
-        // (car player1/player2 sont des rôles absolus dans le duel)
+        // Notifier les DEUX joueurs avec le MÊME résultat (réel).
+        io.to(socket.id).emit('duel_finished', { winner_id: winnerRole });
+        
         if (opponentSocket !== BOT_USER.socketId) {
           io.to(opponentSocket).emit('duel_finished', { 
-            winner_id: isPlayer1 ? 'player1' : 'player2' 
+            winner_id: winnerRole 
           });
         }
         

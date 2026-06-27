@@ -253,7 +253,21 @@ exports.completeDuel = async (req, res) => {
       return res.status(403).json({ error: 'Unauthorized' });
     }
     
-    await Duel.complete(duelId, userId);
+    // ✅ Le duel est déjà terminé : l'adversaire a fini avant nous.
+    // On ne réécrit PAS le gagnant, on renvoie simplement le résultat réel,
+    // sinon les DEUX joueurs finissaient par être déclarés "Victoire".
+    if (duel.status === 'finished' && duel.winner_id) {
+      return res.json({ success: true, winner_id: duel.winner_id, already_finished: true });
+    }
+    
+    const result = await Duel.complete(duelId, userId);
+    
+    if (result.changes === 0) {
+      // Course gagnée par l'adversaire entre notre lecture et notre écriture.
+      const refreshed = await Duel.findById(duelId);
+      return res.json({ success: true, winner_id: refreshed.winner_id, already_finished: true });
+    }
+    
     await User.updateXP(userId, 100);
     
     const loserId = duel.player1_id === userId ? duel.player2_id : duel.player1_id;

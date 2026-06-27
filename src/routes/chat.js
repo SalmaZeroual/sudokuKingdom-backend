@@ -16,6 +16,13 @@ router.get('/conversations/:conversationId/messages', chatController.getMessages
 router.post('/conversations/:conversationId/messages', chatController.sendMessage);
 router.post('/conversations/:conversationId/read', chatController.markAsRead);
 
+// ✅ NOUVEAU : statut d'une conversation (peut-on envoyer un message ?)
+router.get('/conversations/:conversationId/status', chatController.getConversationStatus);
+
+// ✅ NOUVEAU : bloquer/débloquer les messages d'un ami (sans casser l'amitié)
+router.post('/block/:friendId', chatController.blockUser);
+router.delete('/block/:friendId', chatController.unblockUser);
+
 // Unread count
 router.get('/unread-count', chatController.getUnreadCount);
 

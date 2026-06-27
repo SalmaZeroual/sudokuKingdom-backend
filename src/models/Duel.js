@@ -56,10 +56,14 @@ class Duel {
   
   static complete(duelId, winnerId) {
     return new Promise((resolve, reject) => {
+      // ✅ Idempotent: si le duel est déjà terminé (l'adversaire a fini en
+      // premier), on ne réécrit PAS le gagnant. Sans ce garde-fou, le 2e
+      // joueur à terminer sa grille écrasait le résultat et les deux
+      // joueurs se voyaient déclarés "Victoire".
       const sql = `
         UPDATE duels 
         SET winner_id = ?, status = 'finished' 
-        WHERE id = ?
+        WHERE id = ? AND status != 'finished'
       `;
       
       db.run(sql, [winnerId, duelId], function(err) {

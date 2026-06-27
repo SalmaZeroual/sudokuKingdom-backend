@@ -1,4 +1,26 @@
 const jwt = require('jsonwebtoken');
+const db = require('../config/database');
+
+// ✅ Migration douce (comme discoverability/accepts_messages) : ajoute la
+// colonne si besoin, ignore l'erreur si elle existe déjà.
+let _lastSeenColumnEnsured = false;
+function ensureLastSeenColumn() {
+  if (_lastSeenColumnEnsured) return;
+  _lastSeenColumnEnsured = true;
+  db.run('ALTER TABLE users ADD COLUMN last_seen DATETIME', () => {});
+}
+
+// ✅ Réactivé : utilisé par le dashboard admin pour les statistiques
+// "utilisateurs actifs" (aujourd'hui / 7 jours / 30 jours). Fire-and-forget :
+// ne bloque jamais la requête en cours, et n'échoue jamais bruyamment.
+function updateLastSeen(userId) {
+  ensureLastSeenColumn();
+  db.run(
+    'UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE id = ?',
+    [userId],
+    () => {} // on ignore silencieusement toute erreur (non bloquant)
+  );
+}
 
 exports.authenticate = (req, res, next) => {
   try {
@@ -17,10 +39,7 @@ exports.authenticate = (req, res, next) => {
     // Add user ID to request
     req.userId = decoded.userId;
 
-    // ✅ COMMENTÉ : updateLastSeen nécessite la colonne last_seen dans la DB
-    // Pour réactiver plus tard, ajoute la colonne : ALTER TABLE users ADD COLUMN last_seen TEXT;
-    // const { updateLastSeen } = require('../controllers/socialController');
-    // updateLastSeen(decoded.userId);
+    updateLastSeen(decoded.userId);
 
     next();
 
@@ -41,6 +60,7 @@ exports.optionalAuthenticate = (req, res, next) => {
       const token = authHeader.substring(7);
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       req.userId = decoded.userId;
+      updateLastSeen(decoded.userId);
     }
   } catch (_) {
     // Token invalide ou absent → pas d'userId, on continue quand même

@@ -262,6 +262,7 @@ exports.login = async (req, res) => {
         league: user.league,
         unique_id: user.unique_id,           // ✅ manquait : cause du rechargement requis
         discoverability: user.discoverability ?? 'id_only',
+        accepts_messages: user.accepts_messages, // ✅ NOUVEAU : sinon le toggle "Accepter les messages" semble ne jamais se sauvegarder
       },
     });
     

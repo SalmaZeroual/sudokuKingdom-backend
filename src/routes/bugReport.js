@@ -3,6 +3,8 @@ const router = express.Router();
 const nodemailer = require('nodemailer');
 const { authenticate } = require('../middlewares/auth'); // ✅ CORRIGÉ
 const User = require('../models/User');
+const db = require('../config/database'); // ✅ NOUVEAU
+const adminController = require('../controllers/adminController'); // ✅ NOUVEAU
 
 // ✅ Configuration email
 const transporter = nodemailer.createTransport({
@@ -31,6 +33,22 @@ router.post('/report-bug', authenticate, async (req, res) => {
     }
 
     console.log('📧 Envoi du bug report pour:', user.username);
+
+    // ✅ NOUVEAU : on enregistre aussi le rapport en base, pour qu'il
+    // apparaisse dans le dashboard admin (en plus de l'email, pas à la
+    // place de l'email).
+    await adminController.ensureAdminSchema();
+    await new Promise((resolve) => {
+      db.run(
+        `INSERT INTO bug_reports (user_id, username, email, description)
+         VALUES (?, ?, ?, ?)`,
+        [user.id, user.username, user.email, description.trim()],
+        (err) => {
+          if (err) console.error('❌ Erreur enregistrement bug_reports:', err);
+          resolve();
+        }
+      );
+    });
 
     // ✅ Email à envoyer
     const mailOptions = {
