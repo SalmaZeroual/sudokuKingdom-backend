@@ -50,7 +50,7 @@ router.post('/report-bug', authenticate, async (req, res) => {
       );
     });
 
-    // ✅ Email à envoyer
+    // ✅ Email à envoyer (en arrière-plan — voir note ci-dessous)
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: 'salma9ezeroual@gmail.com',
@@ -83,10 +83,14 @@ router.post('/report-bug', authenticate, async (req, res) => {
       `,
     };
 
-    // ✅ Envoyer l'email
-    await transporter.sendMail(mailOptions);
-
-    console.log('✅ Bug report envoyé avec succès !');
+    // ✅ Bug corrigé (en complément du fix côté app) : on n'attend plus
+    // l'envoi de l'email pour répondre au client. Le rapport est déjà
+    // enregistré en base à ce stade (visible dans le dashboard) — l'email
+    // part en arrière-plan, sans jamais ralentir ni bloquer la réponse,
+    // même si Gmail est lent à répondre.
+    transporter.sendMail(mailOptions)
+      .then(() => console.log('✅ Email de bug report envoyé avec succès !'))
+      .catch((err) => console.error('❌ Erreur envoi email bug report (rapport déjà enregistré) :', err));
 
     res.json({
       success: true,

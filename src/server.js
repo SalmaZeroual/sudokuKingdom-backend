@@ -87,10 +87,30 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 3000;
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📡 WebSocket server ready`);
-  console.log(`✅ User profile routes enabled at /api/user`);
-});
+// ✅ Bug corrigé : avant, le serveur commençait à accepter les requêtes
+// IMMÉDIATEMENT, et le seed des 50 chapitres Énigme (une grosse série
+// d'insertions SQLite) tournait EN MÊME TEMPS en arrière-plan. Si une
+// requête (ex: /story/kingdoms) arrivait pendant ce court instant, elle
+// pouvait être ralentie par la contention sur la base SQLite jusqu'à
+// dépasser le délai d'attente côté app — qui affichait alors "Pas de
+// connexion" alors que le serveur tournait très bien.
+// On exécute maintenant le seed AVANT de commencer à écouter les requêtes.
+async function startServer() {
+  console.log('🌱 Vérification des chapitres Énigme...');
+  try {
+    const { ensureChaptersSeeded } = require('./controllers/storyController');
+    await ensureChaptersSeeded();
+  } catch (err) {
+    console.error('❌ Erreur lors du seed automatique des chapitres Énigme:', err);
+  }
+
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`📡 WebSocket server ready`);
+    console.log(`✅ User profile routes enabled at /api/user`);
+  });
+}
+
+startServer();
 
 module.exports = { app, io };

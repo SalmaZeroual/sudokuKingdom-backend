@@ -154,7 +154,7 @@ exports.getChapters = async (req, res) => {
         mistakes: progress.mistakes || 0,
         completed_at: progress.completed_at || null,
         // Don't send grid/solution to frontend for locked chapters
-        grid: isLocked ? null : chapter.grid,
+        grid: chapter.grid,
         solution: null, // Never send solution to frontend
       };
     });
@@ -305,46 +305,49 @@ exports.completeChapter = async (req, res) => {
 
 exports.initializeChapters = async (req, res) => {
   try {
-    // Check if chapters already exist
-    const existingChapters = await Story.findAll();
-    
-    if (existingChapters.length > 0) {
-      return res.json({ 
-        message: 'Chapters already initialized', 
-        count: existingChapters.length 
-      });
-    }
-    
-    // Generate 50 chapters (10 per kingdom)
-    const chaptersData = generateAllChapters();
-    
-    let created = 0;
-    for (const chapterData of chaptersData) {
-      await Story.create(
-        chapterData.kingdom_id,
-        chapterData.chapter_id,
-        chapterData.title,
-        chapterData.description,
-        chapterData.grid,
-        chapterData.solution,
-        chapterData.difficulty,
-        chapterData.chapter_order,
-        chapterData.story_text,
-        chapterData.objective_text
-      );
-      created++;
-    }
-    
-    res.json({ 
-      success: true, 
-      message: `${created} chapters created successfully` 
-    });
-    
+    const result = await ensureChaptersSeeded();
+    res.json(result);
   } catch (error) {
     console.error('Initialize chapters error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };
+
+// ✅ NOUVEAU : logique factorisée pour pouvoir être appelée automatiquement
+// au démarrage du serveur (voir server.js), au lieu de dépendre d'un
+// utilisateur qui clique sur un bouton caché pour "débloquer" le contenu.
+// Idempotent : si les chapitres existent déjà, ne fait rien.
+async function ensureChaptersSeeded() {
+  const existingChapters = await Story.findAll();
+
+  if (existingChapters.length > 0) {
+    return { message: 'Chapters already initialized', count: existingChapters.length };
+  }
+
+  const chaptersData = generateAllChapters();
+
+  let created = 0;
+  for (const chapterData of chaptersData) {
+    await Story.create(
+      chapterData.kingdom_id,
+      chapterData.chapter_id,
+      chapterData.title,
+      chapterData.description,
+      chapterData.grid,
+      chapterData.solution,
+      chapterData.difficulty,
+      chapterData.chapter_order,
+      chapterData.story_text,
+      chapterData.objective_text
+    );
+    created++;
+  }
+
+  console.log(`✅ ${created} chapitres Énigme générés automatiquement`);
+  return { success: true, message: `${created} chapters created successfully` };
+}
+
+exports.ensureChaptersSeeded = ensureChaptersSeeded;
 
 // ==========================================
 // HELPER FUNCTIONS

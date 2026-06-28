@@ -1,24 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const storyController = require('../controllers/storyController');
-const { authenticate } = require('../middlewares/auth');
+const { authenticate, optionalAuthenticate } = require('../middlewares/auth');
 
-// Protected routes
-router.use(authenticate);
+// Routes publiques (accessibles hors ligne / invité)
+// optionalAuthenticate : définit req.userId si token valide, sinon userId = undefined
+router.get('/kingdoms', optionalAuthenticate, storyController.getKingdoms);
+router.get('/chapters', optionalAuthenticate, storyController.getChapters);
+router.get('/chapters/:chapterId', optionalAuthenticate, storyController.getChapterDetails);
 
-// Get all kingdoms with progress
-router.get('/kingdoms', storyController.getKingdoms);
-
-// Get chapters for a specific kingdom
-router.get('/chapters', storyController.getChapters);
-
-// Get specific chapter details
-router.get('/chapters/:chapterId', storyController.getChapterDetails);
-
-// Complete a chapter
-router.post('/chapters/:chapterId/complete', storyController.completeChapter);
-
-// Admin route to initialize chapters (IMPORTANT)
-router.post('/initialize', storyController.initializeChapters);
+// Routes protégées (nécessitent un compte)
+router.post('/chapters/:chapterId/complete', authenticate, storyController.completeChapter);
+router.post('/initialize', authenticate, storyController.initializeChapters);
 
 module.exports = router;

@@ -205,6 +205,10 @@ exports.createAnnouncement = async (req, res) => {
       [title.trim(), message.trim()]
     );
 
+    // Envoyer le message à tous les utilisateurs via le chat (sender = Sudoku Kingdom id=999)
+    const fullMessage = `📣 ${title.trim()}\n\n${message.trim()}`;
+    await _broadcastMessageToAllUsers(fullMessage);
+
     res.json({ success: true, id: result.lastID });
   } catch (error) {
     console.error('Admin createAnnouncement error:', error);
@@ -273,3 +277,39 @@ exports.updateBugReportStatus = async (req, res) => {
 };
 
 exports.ensureAdminSchema = ensureAdminSchema;
+
+// Broadcast: envoie un vrai message de Sudoku Kingdom (id=999) à chaque utilisateur
+async function _broadcastMessageToAllUsers(content) {
+  const BOT_ID = 999;
+  const users = await all('SELECT id FROM users WHERE id != ?', [BOT_ID]);
+
+  for (const user of users) {
+    try {
+      let conv = await get(
+        `SELECT id FROM conversations
+         WHERE (user1_id = ? AND user2_id = ?) OR (user1_id = ? AND user2_id = ?)`,
+        [BOT_ID, user.id, user.id, BOT_ID]
+      );
+
+      if (!conv) {
+        const r = await run(
+          'INSERT OR IGNORE INTO conversations (user1_id, user2_id) VALUES (?, ?)',
+          [BOT_ID, user.id]
+        );
+        conv = { id: r.lastID };
+      }
+
+      const msgRes = await run(
+        'INSERT INTO messages (conversation_id, sender_id, receiver_id, content) VALUES (?, ?, ?, ?)',
+        [conv.id, BOT_ID, user.id, content]
+      );
+
+      await run(
+        'UPDATE conversations SET last_message_id = ?, last_message_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [msgRes.lastID, conv.id]
+      );
+    } catch (err) {
+      console.error(`Broadcast failed for user ${user.id}:`, err.message);
+    }
+  }
+}

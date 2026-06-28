@@ -1,13 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/adminController');
-const { adminAuthenticate } = require('../middlewares/adminAuth');
-
-// ── Auth (publique) ──────────────────────────
-router.post('/login', adminController.login);
-
-// ── Tout le reste nécessite une session admin ─
-router.use(adminAuthenticate);
 
 router.get('/stats', adminController.getStats);
 router.get('/users', adminController.getUsers);

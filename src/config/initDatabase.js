@@ -205,12 +205,21 @@ const createTables = () => {
       db.run(`
         CREATE INDEX IF NOT EXISTS idx_messages_receiver_unread 
         ON messages(receiver_id, is_read)
+      `);
+
+      // Créer l'utilisateur système "Sudoku Kingdom" (id=999) s'il n'existe pas.
+      // C'est lui qui envoie les annonces dans le chat. Pas un vrai compte.
+      db.run(`
+        INSERT INTO users (id, username, email, password_hash, xp, level, avatar, wins, streak, league, email_verified)
+        VALUES (999, 'Sudoku Kingdom', 'system@sudokukingdom.com', 'NO_LOGIN', 0, 1, '👑', 0, 0, 'Bronze', 1)
+        ON CONFLICT(id) DO UPDATE SET username = 'Sudoku Kingdom', avatar = '👑'
       `, (err) => {
         if (err) {
           console.error('❌ Error creating tables:', err);
           reject(err);
         } else {
           console.log('✅ Database tables created successfully (including chat tables)');
+          console.log('✅ Sudoku Kingdom system user ready (id=999)');
           resolve();
         }
       });
